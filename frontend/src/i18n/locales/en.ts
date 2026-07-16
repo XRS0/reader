@@ -233,6 +233,7 @@ export const en = {
     deleteWord: 'Delete “{{word}}”',
     deleteConfirm: 'Delete this word from your dictionary? This cannot be undone.',
     deleteError: 'Could not delete the word. Please try again.',
+    alternatives: 'Alternative translations',
     context: 'Context',
     note: 'Personal note',
     occurrences: 'Occurrences'

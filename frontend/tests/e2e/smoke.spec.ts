@@ -161,7 +161,7 @@ test('dictionary accepts a Russian word with a definition and no translation', a
       name: /^(?:Открыть карточку слова «Самобытность»|Open details for “Самобытность”)$/
     })
     .click()
-  const details = page.getByRole('dialog', { name: /Карточка слова|Word details/ })
+  const details = page.getByRole('dialog', { name: 'Самобытность' })
   await expect(
     details.getByRole('paragraph').filter({
       hasText: 'Неповторимое своеобразие человека или явления.'
@@ -169,7 +169,9 @@ test('dictionary accepts a Russian word with a definition and no translation', a
   ).toBeVisible()
   await details.getByRole('button', { name: /Удалить|Delete/ }).click()
 
-  const confirmation = page.getByRole('dialog', { name: 'Самобытность' })
+  const confirmation = page.getByRole('dialog').filter({
+    has: page.getByText(/Действие нельзя отменить|This cannot be undone/)
+  })
   await confirmation.getByRole('button', { name: /Удалить|Delete/ }).click()
   await expect(page.getByText('Самобытность')).toHaveCount(0)
 })

@@ -69,12 +69,17 @@ describe('DictionaryPage', () => {
 
     await user.click(screen.getByRole('button', { name: /Открыть карточку|Open details/i }))
 
-    const details = screen.getByRole('dialog', { name: /Карточка слова|Word details/i })
+    const details = screen.getByRole('dialog', { name: 'самобытность' })
     expect(
       within(details).getByText('Неповторимое своеобразие человека, культуры или явления.', {
         selector: 'p'
       })
     ).toBeVisible()
+    expect(
+      within(details).queryByRole('textbox', { name: /Перевод|Translation/i })
+    ).not.toBeInTheDocument()
+
+    await user.click(within(details).getByRole('button', { name: /Изменить|Edit/i }))
     expect(within(details).getByRole('textbox', { name: /Перевод|Translation/i })).toHaveValue('')
   })
 

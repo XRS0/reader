@@ -1,4 +1,4 @@
-import { ChevronRight, Download, Languages, Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, Download, Languages, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -15,7 +15,6 @@ import {
   Badge,
   Button,
   Dialog,
-  Drawer,
   EmptyState,
   ErrorState,
   Field,
@@ -194,15 +193,13 @@ export function DictionaryPage() {
         </div>
       )}
 
-      <Drawer open={Boolean(selected)} onClose={closeEntry} label={t('dictionary.entryDetails')}>
-        {selected ? (
-          <DictionaryDetails
-            entry={selected}
-            onClose={closeEntry}
-            onDelete={() => setDeleting(selected)}
-          />
-        ) : null}
-      </Drawer>
+      {selected ? (
+        <DictionaryDetailsDialog
+          entry={selected}
+          onClose={closeEntry}
+          onDelete={() => setDeleting(selected)}
+        />
+      ) : null}
       <NewDictionaryEntryDialog open={createOpen} onClose={() => setCreateOpen(false)} />
       <AlertDialog
         open={Boolean(deleting)}
@@ -230,7 +227,7 @@ function StatusBadge({ status }: { status: DictionaryStatus }) {
   )
 }
 
-function DictionaryDetails({
+function DictionaryDetailsDialog({
   entry,
   onClose,
   onDelete
@@ -245,89 +242,178 @@ function DictionaryDetails({
   const [status, setStatus] = useState(entry.status)
   const [translation, setTranslation] = useState(entry.translation)
   const [definition, setDefinition] = useState(entry.definition ?? '')
+  const [editing, setEditing] = useState(false)
+  const resetDraft = () => {
+    setNote(entry.note ?? '')
+    setStatus(entry.status)
+    setTranslation(entry.translation)
+    setDefinition(entry.definition ?? '')
+  }
   const save = async () => {
     try {
       await update.mutateAsync({ note, status, translation, definition })
-      onClose()
+      setEditing(false)
     } catch {
-      // The mutation state renders the error without closing the drawer.
+      // The mutation state renders the error without leaving edit mode.
     }
   }
+  const language = translation.trim()
+    ? `${entry.source_language.toUpperCase()} → ${entry.target_language.toUpperCase()}`
+    : entry.source_language.toUpperCase()
+
   return (
-    <div className={styles.sidePanel} style={{ padding: 24 }}>
-      <div>
-        <h2 className={styles.sidePanelWord}>{entry.original_word}</h2>
-        {entry.translation ? (
-          <p className={styles.sidePanelTranslation}>{entry.translation}</p>
-        ) : null}
-        <p className={styles.wordTranscription}>
-          {[entry.transcription, entry.part_of_speech].filter(Boolean).join(' · ')}
-        </p>
-      </div>
-      {entry.definition ? (
-        <div className={styles.entryDefinition}>
-          <span>{t('dictionary.definition')}</span>
-          <p>{entry.definition}</p>
-        </div>
-      ) : null}
-      <Field label={t('dictionary.translation')} htmlFor={`dictionary-translation-${entry.id}`}>
-        <Input
-          id={`dictionary-translation-${entry.id}`}
-          value={translation}
-          onChange={(event) => setTranslation(event.target.value)}
-        />
-      </Field>
-      <Field label={t('dictionary.definition')} htmlFor={`dictionary-definition-${entry.id}`}>
-        <Textarea
-          id={`dictionary-definition-${entry.id}`}
-          value={definition}
-          onChange={(event) => setDefinition(event.target.value)}
-        />
-      </Field>
-      <label>
-        <span className={styles.settingLabel}>{t('dictionary.status')}</span>
-        <Select
-          value={status}
-          onChange={(event) => setStatus(event.target.value as DictionaryStatus)}
-        >
-          {(['unknown', 'learning', 'known', 'mastered', 'ignored'] as const).map((value) => (
-            <option key={value} value={value}>
-              {t(`dictionary.${value}`)}
-            </option>
-          ))}
-        </Select>
-      </label>
-      <label>
-        <span className={styles.settingLabel}>{t('dictionary.note')}</span>
-        <Textarea value={note} onChange={(event) => setNote(event.target.value)} />
-      </label>
-      <div>
-        <h3 className={styles.sectionTitle}>{t('dictionary.occurrences')}</h3>
-        <div className={styles.flatRow}>
-          <div>
-            <p className={styles.flatTitle}>{entry.book_title ?? t('dictionary.book')}</p>
-            <p className={styles.flatMeta}>
-              {t('dictionary.lastSeen')}: {formatDate(entry.last_seen_at, i18n.language)}
+    <Dialog
+      open
+      onClose={onClose}
+      title={entry.original_word}
+      description={
+        [entry.transcription, entry.part_of_speech].filter(Boolean).join(' · ') || language
+      }
+      closeLabel={t('common.close')}
+      className={styles.dictionaryDetailsDialog}
+      footer={
+        editing ? (
+          <>
+            <Button
+              onClick={() => {
+                resetDraft()
+                update.reset()
+                setEditing(false)
+              }}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button variant="accent" loading={update.isPending} onClick={() => void save()}>
+              {t('common.save')}
+            </Button>
+          </>
+        ) : (
+          <>
+            <span className={styles.dictionaryDeleteAction}>
+              <Button variant="ghost" startIcon={Trash2} onClick={onDelete}>
+                {t('common.delete')}
+              </Button>
+            </span>
+            <Button startIcon={Pencil} onClick={() => setEditing(true)}>
+              {t('common.edit')}
+            </Button>
+            <Button variant="accent" onClick={onClose}>
+              {t('common.close')}
+            </Button>
+          </>
+        )
+      }
+    >
+      {editing ? (
+        <div className={styles.dictionaryEditForm}>
+          <Field label={t('dictionary.translation')} htmlFor={`dictionary-translation-${entry.id}`}>
+            <Input
+              id={`dictionary-translation-${entry.id}`}
+              value={translation}
+              onChange={(event) => setTranslation(event.target.value)}
+            />
+          </Field>
+          <Field label={t('dictionary.definition')} htmlFor={`dictionary-definition-${entry.id}`}>
+            <Textarea
+              id={`dictionary-definition-${entry.id}`}
+              value={definition}
+              onChange={(event) => setDefinition(event.target.value)}
+            />
+          </Field>
+          <Field label={t('dictionary.status')}>
+            <Select
+              value={status}
+              aria-label={t('dictionary.status')}
+              onChange={(event) => setStatus(event.target.value as DictionaryStatus)}
+            >
+              {(['unknown', 'learning', 'known', 'mastered', 'ignored'] as const).map((value) => (
+                <option key={value} value={value}>
+                  {t(`dictionary.${value}`)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label={t('dictionary.note')}>
+            <Textarea
+              aria-label={t('dictionary.note')}
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+            />
+          </Field>
+          {update.isError ? (
+            <p className={styles.formError} role="alert">
+              {t('dictionary.createError')}
             </p>
-          </div>
-          <strong>{entry.encounter_count}</strong>
+          ) : null}
         </div>
-      </div>
-      <div className={styles.headerActions}>
-        {update.isError ? (
-          <span className={styles.formError} role="alert">
-            {t('dictionary.createError')}
-          </span>
-        ) : null}
-        <Button variant="danger" startIcon={Trash2} onClick={onDelete}>
-          {t('common.delete')}
-        </Button>
-        <Button onClick={onClose}>{t('common.cancel')}</Button>
-        <Button variant="accent" loading={update.isPending} onClick={() => void save()}>
-          {t('common.save')}
-        </Button>
-      </div>
-    </div>
+      ) : (
+        <div className={styles.dictionaryDetails}>
+          {translation.trim() ? (
+            <section className={styles.dictionaryMeaning}>
+              <span>{t('dictionary.translation')}</span>
+              <p className={styles.dictionaryTranslation}>{translation}</p>
+            </section>
+          ) : null}
+          {definition.trim() ? (
+            <section className={styles.dictionaryMeaning}>
+              <span>{t('dictionary.definition')}</span>
+              <p>{definition}</p>
+            </section>
+          ) : null}
+          {!translation.trim() && !definition.trim() ? (
+            <p className={styles.dictionaryNoDetails}>{t('dictionary.noDetails')}</p>
+          ) : null}
+          {entry.alternative_translations.length ? (
+            <section className={styles.dictionaryMeaning}>
+              <span>{t('dictionary.alternatives')}</span>
+              <p>{entry.alternative_translations.join(' · ')}</p>
+            </section>
+          ) : null}
+          {note.trim() ? (
+            <section className={styles.dictionaryNote}>
+              <span>{t('dictionary.note')}</span>
+              <p>{note}</p>
+            </section>
+          ) : null}
+          <dl className={styles.dictionaryFacts}>
+            <div>
+              <dt>{t('dictionary.status')}</dt>
+              <dd>
+                <StatusBadge status={status} />
+              </dd>
+            </div>
+            <div>
+              <dt>{t('dictionary.language')}</dt>
+              <dd>{language}</dd>
+            </div>
+            <div>
+              <dt>{t('dictionary.encounters')}</dt>
+              <dd>{entry.encounter_count}</dd>
+            </div>
+            <div>
+              <dt>{t('dictionary.lastSeen')}</dt>
+              <dd>{formatDate(entry.last_seen_at, i18n.language)}</dd>
+            </div>
+            <div>
+              <dt>{t('dictionary.firstSeen')}</dt>
+              <dd>{formatDate(entry.first_seen_at, i18n.language)}</dd>
+            </div>
+            {entry.next_review_at ? (
+              <div>
+                <dt>{t('dictionary.review')}</dt>
+                <dd>{formatDate(entry.next_review_at, i18n.language)}</dd>
+              </div>
+            ) : null}
+            {entry.book_title ? (
+              <div className={styles.dictionaryFactWide}>
+                <dt>{t('dictionary.book')}</dt>
+                <dd>{entry.book_title}</dd>
+              </div>
+            ) : null}
+          </dl>
+        </div>
+      )}
+    </Dialog>
   )
 }
 
