@@ -149,7 +149,7 @@ export async function apiRequestVoid(path: string, options: RequestOptions = {})
  * sendBeacon cannot attach the required CSRF header, so cookie-authenticated
  * endpoints use fetch keepalive instead.
  */
-export function apiKeepalive(path: string, body: unknown): void {
+export function apiKeepalive(path: string, body: unknown, method: 'POST' | 'PUT' = 'POST'): void {
   if (apiConfig.demo) return
   const headers = new Headers({
     Accept: 'application/json',
@@ -158,7 +158,7 @@ export function apiKeepalive(path: string, body: unknown): void {
   const token = csrfToken || csrfFromCookie()
   if (token) headers.set('X-CSRF-Token', token)
   void fetch(`${apiConfig.baseUrl}${path}`, {
-    method: 'POST',
+    method,
     credentials: 'include',
     keepalive: true,
     headers,

@@ -185,6 +185,7 @@ export const en = {
     translationError: 'Translation is unavailable right now.',
     dictionaryError: 'Could not add the word. Please try again.',
     addedDictionary: 'Added to dictionary',
+    resumeMarker: 'You stopped here',
     definition: 'Definition',
     alternatives: 'Alternatives',
     selectHint: 'Select a word or phrase to translate, save, or annotate it.',

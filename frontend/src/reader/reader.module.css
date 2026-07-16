@@ -96,6 +96,7 @@
   overflow: hidden;
 }
 .content {
+  position: relative;
   width: min(var(--reader-width, 720px), calc(100vw - (var(--reader-margin, 40px) * 2)));
   min-height: 100dvh;
   margin: 0 auto;
@@ -108,6 +109,39 @@
   letter-spacing: var(--reader-letter-spacing, 0em);
   line-height: var(--reader-line-height, 1.7);
   text-align: var(--reader-align, left);
+}
+.contentRestoring {
+  opacity: 0;
+}
+.resumeMarker {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: color-mix(in srgb, var(--reader-accent) 86%, var(--reader-text));
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+.resumeMarker::before,
+.resumeMarker::after {
+  height: 1px;
+  flex: 1;
+  background: color-mix(in srgb, var(--reader-accent) 52%, transparent);
+  content: '';
+}
+.resumeMarker span {
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--reader-accent) 28%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--reader-bg) 92%, transparent);
+  white-space: nowrap;
 }
 .contentPaged {
   height: calc(100dvh - 88px);

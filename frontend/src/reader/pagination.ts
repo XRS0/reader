@@ -14,6 +14,12 @@ function clampScrollTarget(target: number, maximum: number): number {
   return Math.min(Math.max(0, target), Math.max(0, maximum))
 }
 
+/** Converts a persisted chapter percentage back into a physical scroll position. */
+export function calculateResumeTarget(scrollPercent: number, maximum: number): number {
+  const percent = Math.min(100, Math.max(0, Number.isFinite(scrollPercent) ? scrollPercent : 0))
+  return clampScrollTarget((percent / 100) * maximum, maximum)
+}
+
 /** Returns the closest complete page for a drag/touch scroll that ended between columns. */
 export function calculatePagedSnapTarget(
   scrollLeft: number,

@@ -308,7 +308,7 @@ GitHub Actions определяет jobs для gofmt/vet/unit/race/build, golan
 
 - backend unit, short race, vet, build, gofmt, tidy и golangci-lint;
 - integration-tagged suite с реальными PostgreSQL 17 и RustFS, включая auth reuse, ownership, optimistic concurrency, sessions, cache, annotations, statistics, jobs и book processing;
-- frontend format/lint/typecheck, 40 Vitest tests и production/PWA build;
+- frontend format/lint/typecheck, 42 Vitest tests и production/PWA build;
 - Playwright: 14 тестов прошли и 2 project-specific skip ожидаемы; оба проекта используют Chromium/Chromium-based Pixel 7 и `VITE_DEMO_MODE=true`; отдельно выполнен authenticated real-API acceptance для словаря без перевода;
 - OpenAPI route inventory `69/49`, Redocly без ошибок/предупреждений, генерация 4,288-строчной TypeScript schema и последующие frontend lint/typecheck;
 - финальные backend images `api`, `worker` и `migrations` собраны из текущего source командой `docker compose --env-file ../work/qa.env build api worker migrations` за `11.61s`; финальный frontend image также пересобран;
@@ -317,13 +317,14 @@ GitHub Actions определяет jobs для gofmt/vet/unit/race/build, golan
 - production frontend проверен браузерной регистрацией через `http://127.0.0.1:3000`: `POST /auth/register` → `201`, переход в Library, одна активная sidebar-ссылка, без page errors; loopback CORS разрешает и `localhost`, и `127.0.0.1`.
 - custom app theme проверена на production frontend: три цвета применяются ко всему shell, переживают reload, desktop/mobile не имеют horizontal overflow; desktop sidebar и mobile drawer не содержат Continue/Recent, console после чистой перезагрузки без ошибок.
 - paged reader проверен отдельным desktop/mobile Chromium E2E: системный scrollbar скрыт, свободная позиция автоматически доводится до ближайшей границы страницы, keyboard navigation переходит ровно на одну колонку.
+- позиция чтения восстанавливается при повторном открытии: scroll-режим возвращает к сохранённому проценту главы и показывает линию «Вы остановились здесь», paged-режим открывает сохранённую целую страницу; финальная позиция отправляется keepalive-запросом при закрытии вкладки.
 - header и нижняя status-панель читалки закреплены постоянно: они остаются видимыми после фокуса, клика, скролла и периода бездействия.
 - словарь поддерживает ручное добавление, отдельные перевод и значение/описание, русские одноязычные записи без перевода, поиск по описанию и явную ошибку сохранения из читалки; сценарий проверен в desktop/mobile E2E и на реальном API.
 - реальный пользовательский EPUB с XHTML `<title/>` переобработан после XML-aware sanitizer fix: current version содержит 49 глав, 0 `Chapter N`, 0 escaped-document fragments и 0 HTML markup в `content_text`; русские NCX-заголовки, абзацы, emphasis и superscript сохранены, а progress remapped на current-version chapter ID.
 
 Restart-проверка подтвердила, что frontend продолжает проксировать API после `force-recreate`, а PostgreSQL/RustFS сохраняют пользовательские metadata, progress/preferences, TOC, reading session и 152-байтовый оригинал книги. Для этого frontend Nginx использует Docker DNS resolver `127.0.0.11`, динамически разрешаемый upstream и shared upstream zone; `nginx -t` и пересобранный frontend image прошли. Это проверка локальной persistence, а не production backup/restore.
 
-Vitest statement coverage составляет 23.55% (40 тестов в 17 файлах); это стартовое покрытие критичных frontend primitives, а не доказательство полного UI coverage. Точные команды и границы evidence: [`docs/implementation-plan.md`](docs/implementation-plan.md).
+Vitest statement coverage составляет 23.21% (42 теста в 17 файлах); это стартовое покрытие критичных frontend primitives, а не доказательство полного UI coverage. Точные команды и границы evidence: [`docs/implementation-plan.md`](docs/implementation-plan.md).
 
 Подробная тестовая матрица: [`docs/testing.md`](docs/testing.md).
 

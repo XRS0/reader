@@ -26,12 +26,14 @@ import {
   type WheelEvent as ReactWheelEvent
 } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
 import { apiConfig } from '../api/config'
 import { ApiError, apiKeepalive } from '../api/http'
 import { booksApi, sessionsApi } from '../api/bookflow'
 import {
+  queryKeys,
   useAddBookmark,
   useAddHighlight,
   useBook,
@@ -41,6 +43,7 @@ import {
   useCreateDictionaryEntry,
   useCreateNote,
   useReaderPreferences,
+  useUpdateReaderPreferences,
   useReadingSession,
   useTranslation as useTranslationRequest
 } from '../api/hooks'
@@ -64,7 +67,8 @@ import { resolveSourceLanguage } from './language'
 import {
   calculatePagedNavigationTarget,
   calculatePagedScrollStep,
-  calculatePagedSnapTarget
+  calculatePagedSnapTarget,
+  calculateResumeTarget
 } from './pagination'
 import { SelectionToolbar, TranslationPopover, type TranslationValue } from './TranslationPopover'
 import styles from './reader.module.css'
@@ -100,6 +104,7 @@ export function ReaderPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { notify } = useToast()
+  const queryClient = useQueryClient()
   const bookQuery = useBook(bookId)
   const tocQuery = useBookToc(bookId)
   const progressQuery = useBookProgress(bookId)
@@ -111,6 +116,7 @@ export function ReaderPage() {
     tocQuery.data?.[0]?.chapter_id
   const chapterQuery = useChapter(bookId, chapterId)
   const serverPreferences = useReaderPreferences(bookId)
+  const { mutate: persistPreferences } = useUpdateReaderPreferences(bookId)
   const preferences = useReaderStore((state) => state.preferences)
   const replacePreferences = useReaderStore((state) => state.replacePreferences)
   const updatePreferences = useReaderStore((state) => state.updatePreferences)
@@ -125,6 +131,8 @@ export function ReaderPage() {
   const [bookSearch, setBookSearch] = useState('')
   const [readingPercent, setReadingPercent] = useState(progressQuery.data?.progress_percent ?? 0)
   const [scrollPercent, setScrollPercent] = useState(progressQuery.data?.scroll_percent ?? 0)
+  const [resumeMarkerTop, setResumeMarkerTop] = useState<number>()
+  const [positionReady, setPositionReady] = useState(false)
   const [mobile, setMobile] = useState(() => matchMedia('(max-width: 720px)').matches)
   const viewportRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLElement>(null)
@@ -153,6 +161,8 @@ export function ReaderPage() {
   const online = useOfflineStore((state) => state.online)
   const initialPreferenceApplied = useRef(false)
   const progressLoaded = useRef(false)
+  const restoringPosition = useRef(false)
+  const restoredPositionKey = useRef('')
 
   const chapter = chapterQuery.data
   const book = bookQuery.data
@@ -216,10 +226,10 @@ export function ReaderPage() {
     if (!initialPreferenceApplied.current) return undefined
     window.clearTimeout(preferencesTimer.current)
     preferencesTimer.current = window.setTimeout(() => {
-      void booksApi.updatePreferences(preferences, bookId)
+      persistPreferences(preferences)
     }, 700)
     return () => window.clearTimeout(preferencesTimer.current)
-  }, [bookId, preferences])
+  }, [persistPreferences, preferences])
 
   useEffect(() => {
     if (progressQuery.data) {
@@ -273,6 +283,7 @@ export function ReaderPage() {
         if (!navigator.onLine) throw new Error('offline')
         const result = await booksApi.updateProgress(bookId, input)
         revision.current = result.revision
+        queryClient.setQueryData(queryKeys.progress(bookId), result)
       } catch (error) {
         if (error instanceof ApiError && error.status === 409) {
           const current = error.details?.current
@@ -291,8 +302,97 @@ export function ReaderPage() {
         setPending(queue.length)
       }
     },
-    [bookId, chapterId, chapterText, clientId, setPending]
+    [bookId, chapterId, chapterText, clientId, queryClient, setPending]
   )
+
+  useEffect(() => {
+    if (!chapter || !chapterId || progressQuery.isLoading) return undefined
+    const progress = progressQuery.data
+    const isSavedChapter = Boolean(progress?.chapter_id && progress.chapter_id === chapterId)
+    const layoutKey = [
+      bookId,
+      chapterId,
+      preferences.reading_mode,
+      progress?.updated_at,
+      preferences.font_family,
+      preferences.font_size,
+      preferences.line_height,
+      preferences.content_width,
+      preferences.page_margin
+    ].join(':')
+
+    if (!isSavedChapter) {
+      restoredPositionKey.current = layoutKey
+      setResumeMarkerTop(undefined)
+      setPositionReady(true)
+      return undefined
+    }
+    if (restoredPositionKey.current === layoutKey) return undefined
+
+    restoringPosition.current = true
+    setPositionReady(false)
+    let secondFrame = 0
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        const viewport = viewportRef.current
+        const content = contentRef.current
+        if (!viewport || !content || !progress) return
+
+        if (preferences.reading_mode === 'paged') {
+          const maximum = Math.max(0, content.scrollWidth - content.clientWidth)
+          const step = calculatePagedScrollStep(
+            content.clientWidth,
+            window.getComputedStyle(content).columnGap
+          )
+          const target = calculatePagedSnapTarget(
+            calculateResumeTarget(progress.scroll_percent, maximum),
+            step,
+            maximum
+          )
+          const behavior = content.style.scrollBehavior
+          content.style.scrollBehavior = 'auto'
+          content.scrollLeft = target
+          content.style.scrollBehavior = behavior
+          setResumeMarkerTop(undefined)
+        } else {
+          const maximum = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
+          const target = calculateResumeTarget(progress.scroll_percent, maximum)
+          const behavior = viewport.style.scrollBehavior
+          viewport.style.scrollBehavior = 'auto'
+          viewport.scrollTop = target
+          viewport.style.scrollBehavior = behavior
+          setResumeMarkerTop(
+            progress.scroll_percent > 0
+              ? Math.max(68, Math.min(content.scrollHeight - 28, target + 72))
+              : undefined
+          )
+        }
+
+        restoredPositionKey.current = layoutKey
+        setPositionReady(true)
+        window.requestAnimationFrame(() => {
+          restoringPosition.current = false
+        })
+      })
+    })
+    return () => {
+      window.cancelAnimationFrame(firstFrame)
+      window.cancelAnimationFrame(secondFrame)
+      restoringPosition.current = false
+    }
+  }, [
+    bookId,
+    chapter,
+    chapterId,
+    preferences.content_width,
+    preferences.font_family,
+    preferences.font_size,
+    preferences.line_height,
+    preferences.page_margin,
+    preferences.reading_mode,
+    progressQuery.data,
+    progressQuery.isLoading
+  ])
 
   const scheduleProgress = useCallback(
     (nextScroll: number) => {
@@ -362,6 +462,7 @@ export function ReaderPage() {
   }, [pagedMetrics])
 
   const onReaderScroll = useCallback(() => {
+    if (restoringPosition.current) return
     lastActivityAt.current = Date.now()
     const element = preferences.reading_mode === 'paged' ? contentRef.current : viewportRef.current
     if (!element) return
@@ -432,8 +533,32 @@ export function ReaderPage() {
   }, [session.sessionId])
 
   const beaconFinish = useCallback(() => {
-    if (!session.sessionId || finishSent.current) return
+    if (finishSent.current) return
     finishSent.current = true
+    window.clearTimeout(progressTimer.current)
+    const position = positionRef.current
+    if (bookId && chapterId) {
+      apiKeepalive(
+        `/books/${encodeURIComponent(bookId)}/progress`,
+        {
+          chapter_id: chapterId,
+          locator_type: 'chapter_offset',
+          locator: position.locator,
+          character_offset: Math.round((position.scroll / 100) * chapterText.length),
+          text_anchor: chapterText.slice(
+            Math.max(0, Math.round((position.scroll / 100) * chapterText.length) - 24),
+            Math.round((position.scroll / 100) * chapterText.length) + 48
+          ),
+          progress_percent: position.progress,
+          scroll_percent: position.scroll,
+          revision: revision.current,
+          client_id: clientId,
+          client_timestamp: new Date().toISOString()
+        } satisfies ProgressUpdate,
+        'PUT'
+      )
+    }
+    if (!session.sessionId) return
     const input: FinishSessionInput = {
       locator: positionRef.current.locator,
       progress_percent: positionRef.current.progress,
@@ -442,7 +567,7 @@ export function ReaderPage() {
       idempotency_key: crypto.randomUUID()
     }
     apiKeepalive(`/reading-sessions/${encodeURIComponent(session.sessionId)}/finish`, input)
-  }, [session.sessionId])
+  }, [bookId, chapterId, chapterText, clientId, session.sessionId])
 
   useEffect(() => {
     window.addEventListener('pagehide', beaconFinish)
@@ -450,6 +575,9 @@ export function ReaderPage() {
   }, [beaconFinish])
 
   const finishAndExit = async () => {
+    window.clearTimeout(progressTimer.current)
+    const position = positionRef.current
+    await persistProgress(position.progress, position.scroll, position.locator)
     if (session.sessionId && !finishSent.current) {
       finishSent.current = true
       await session.finish
@@ -659,7 +787,12 @@ export function ReaderPage() {
     '--custom-reader-accent': preferences.accent_color
   } as CSSProperties
 
-  if (bookQuery.isLoading || chapterQuery.isLoading || tocQuery.isLoading)
+  if (
+    bookQuery.isLoading ||
+    chapterQuery.isLoading ||
+    tocQuery.isLoading ||
+    progressQuery.isLoading
+  )
     return <LoadingState label={t('common.loading')} />
   if (bookQuery.isError || chapterQuery.isError || !book || !chapter) {
     return (
@@ -749,12 +882,23 @@ export function ReaderPage() {
           ref={contentRef}
           className={clsx(
             styles.content,
-            preferences.reading_mode === 'paged' && styles.contentPaged
+            preferences.reading_mode === 'paged' && styles.contentPaged,
+            !positionReady && styles.contentRestoring
           )}
           onMouseUp={handleSelection}
           onWheel={preferences.reading_mode === 'paged' ? onPagedWheel : undefined}
           onScroll={preferences.reading_mode === 'paged' ? onReaderScroll : undefined}
         >
+          {preferences.reading_mode === 'scroll' && resumeMarkerTop !== undefined ? (
+            <div
+              className={styles.resumeMarker}
+              style={{ top: resumeMarkerTop }}
+              role="note"
+              aria-label={t('reader.resumeMarker')}
+            >
+              <span>{t('reader.resumeMarker')}</span>
+            </div>
+          ) : null}
           <header className={styles.chapterHeading}>
             <span className={styles.chapterEyebrow}>
               {t('reader.chapterOf', { current: currentChapterIndex + 1, total: toc.length })}

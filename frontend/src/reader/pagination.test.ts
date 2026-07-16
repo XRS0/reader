@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   calculatePagedNavigationTarget,
   calculatePagedScrollStep,
-  calculatePagedSnapTarget
+  calculatePagedSnapTarget,
+  calculateResumeTarget
 } from './pagination'
 
 describe('calculatePagedScrollStep', () => {
@@ -25,5 +26,12 @@ describe('calculatePagedScrollStep', () => {
     expect(calculatePagedNavigationTarget(422, 390, 1560, 1)).toBe(780)
     expect(calculatePagedNavigationTarget(422, 390, 1560, -1)).toBe(0)
     expect(calculatePagedNavigationTarget(1560, 390, 1560, 1)).toBe(1560)
+  })
+
+  it('restores a persisted percentage and clamps invalid boundaries', () => {
+    expect(calculateResumeTarget(27, 1000)).toBe(270)
+    expect(calculateResumeTarget(-4, 1000)).toBe(0)
+    expect(calculateResumeTarget(140, 1000)).toBe(1000)
+    expect(calculateResumeTarget(Number.NaN, 1000)).toBe(0)
   })
 })

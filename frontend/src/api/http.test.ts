@@ -1,4 +1,5 @@
 import { authApi, booksApi } from './bookflow'
+import { apiKeepalive } from './http'
 import type { ReaderPreferences } from '../types/api'
 
 const userEnvelope = {
@@ -102,5 +103,23 @@ describe('API client', () => {
     expect(JSON.parse(typeof init.body === 'string' ? init.body : '{}')).toMatchObject({
       font_family: 'Georgia'
     })
+  })
+
+  it('can persist the final reading position with a keepalive PUT', () => {
+    document.cookie = 'csrf_token=reader-csrf; path=/'
+    const fetchMock = vi.fn((...request: Parameters<typeof fetch>) => {
+      void request
+      return Promise.resolve(new Response(null, { status: 204 }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    apiKeepalive('/books/book-1/progress', { scroll_percent: 42 }, 'PUT')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/books/book-1/progress'),
+      expect.objectContaining({ method: 'PUT', credentials: 'include', keepalive: true })
+    )
+    const init = fetchMock.mock.calls[0]![1] as RequestInit
+    expect(new Headers(init.headers).get('X-CSRF-Token')).toBe('reader-csrf')
   })
 })

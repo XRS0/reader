@@ -185,6 +185,7 @@ export const ru = {
     translationError: 'Перевод сейчас недоступен.',
     dictionaryError: 'Не удалось добавить слово. Повторите попытку.',
     addedDictionary: 'Добавлено в словарь',
+    resumeMarker: 'Вы остановились здесь',
     definition: 'Определение',
     alternatives: 'Варианты',
     selectHint: 'Выделите слово или фразу, чтобы перевести, сохранить или добавить заметку.',
