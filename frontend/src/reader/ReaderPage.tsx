@@ -60,7 +60,7 @@ import {
 } from '../shared/ui'
 import { useOfflineStore } from '../stores/offlineStore'
 import { useReaderStore } from '../stores/readerStore'
-import type { FinishSessionInput, ProgressUpdate } from '../types/api'
+import type { FinishSessionInput, ProgressUpdate, ReadingProgress } from '../types/api'
 import { ReaderSettings, readerFontCss } from './ReaderSettings'
 import { stripLeadingDuplicateHeading } from './html'
 import { resolveSourceLanguage } from './language'
@@ -161,6 +161,7 @@ export function ReaderPage() {
   const online = useOfflineStore((state) => state.online)
   const initialPreferenceApplied = useRef(false)
   const progressLoaded = useRef(false)
+  const sessionStartProgress = useRef<ReadingProgress | undefined>(undefined)
   const restoringPosition = useRef(false)
   const restoredPositionKey = useRef('')
 
@@ -233,6 +234,10 @@ export function ReaderPage() {
 
   useEffect(() => {
     if (progressQuery.data) {
+      // Freeze the visible "you stopped here" boundary for this reader
+      // session. Live autosaves may update the query cache, but the marker
+      // must move only after the session ends and the book is opened again.
+      sessionStartProgress.current ??= progressQuery.data
       progressLoaded.current = true
       revision.current = progressQuery.data.revision
       setReadingPercent(progressQuery.data.progress_percent)
@@ -307,7 +312,7 @@ export function ReaderPage() {
 
   useEffect(() => {
     if (!chapter || !chapterId || progressQuery.isLoading) return undefined
-    const progress = progressQuery.data
+    const progress = sessionStartProgress.current
     const isSavedChapter = Boolean(progress?.chapter_id && progress.chapter_id === chapterId)
     const layoutKey = [
       bookId,
