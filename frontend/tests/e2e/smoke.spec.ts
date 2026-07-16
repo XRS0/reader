@@ -156,17 +156,31 @@ test('dictionary accepts a Russian word with a definition and no translation', a
   await expect(page.getByText('Самобытность')).toBeVisible()
   await expect(page.getByText('Неповторимое своеобразие человека или явления.')).toBeVisible()
 
-  await page
-    .getByRole('button', {
-      name: /^(?:Открыть карточку слова «Самобытность»|Open details for “Самобытность”)$/
-    })
-    .click()
+  const wordCard = page.getByRole('button', {
+    name: /^(?:Открыть карточку слова «Самобытность»|Open details for “Самобытность”)$/
+  })
+  await expect
+    .poll(() => wordCard.evaluate((element) => getComputedStyle(element).backgroundColor))
+    .toBe('rgba(0, 0, 0, 0)')
+
+  await wordCard.click()
   const details = page.getByRole('dialog', { name: 'Самобытность' })
   await expect(
     details.getByRole('paragraph').filter({
       hasText: 'Неповторимое своеобразие человека или явления.'
     })
   ).toBeVisible()
+
+  await details
+    .getByRole('button', { name: /Закрыть|Close/ })
+    .filter({ hasText: /Закрыть|Close/ })
+    .click()
+  await expect(details).toBeHidden()
+  await expect
+    .poll(() => wordCard.evaluate((element) => getComputedStyle(element.parentElement!).transform))
+    .toBe('none')
+
+  await wordCard.click()
   await details.getByRole('button', { name: /Удалить|Delete/ }).click()
 
   const confirmation = page.getByRole('dialog').filter({
