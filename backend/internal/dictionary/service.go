@@ -190,7 +190,7 @@ func (s *Service) List(ctx context.Context, userID uuid.UUID, search, status, la
 		needle := "%" + strings.ToLower(strings.TrimSpace(search)) + "%"
 		q = q.Where("(lower(original_word) LIKE ? OR lower(translation) LIKE ? OR lower(definition) LIKE ? OR lower(note) LIKE ?)", needle, needle, needle, needle)
 	}
-	if status != "" {
+	if status != "" && status != "all" {
 		q = q.Where("status=?", status)
 	}
 	if language != "" {

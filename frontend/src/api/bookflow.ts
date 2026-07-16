@@ -91,7 +91,7 @@ export const booksApi = {
     apiRequest(
       `/books${queryString({
         search: query.search,
-        status: query.status,
+        status: query.status === 'all' ? undefined : query.status,
         format: query.format,
         sort: query.sort,
         favorite: query.favorite,

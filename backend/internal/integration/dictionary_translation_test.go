@@ -70,6 +70,11 @@ func TestDictionaryDeduplicationOccurrencesAndOwnership(t *testing.T) {
 	require.Len(t, items, 1)
 	require.Equal(t, first.ID, items[0].ID)
 
+	items, total, err = service.List(testContext(t), owner.ID, "", "all", "", 50, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, total, "the UI's all-status sentinel must not be treated as a database status")
+	require.Equal(t, first.ID, items[0].ID)
+
 	monolingual, err := service.Create(testContext(t), owner.ID, dictionary.CreateInput{
 		SourceLanguage: "RU",
 		OriginalWord:   "Самобытность",
