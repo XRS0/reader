@@ -592,16 +592,20 @@
   display: flex;
   min-width: 0;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
+  justify-content: flex-start;
   padding-right: var(--space-8);
 }
 .wordCardTopline .wordMain {
-  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: 100%;
+  hyphens: auto;
+  overflow-wrap: break-word;
   font-family: var(--font-reading-serif);
   font-size: var(--text-xl);
   font-weight: 560;
   line-height: 1.2;
+  text-wrap: balance;
+  word-break: normal;
 }
 .wordCardSummary {
   display: -webkit-box;
@@ -609,7 +613,11 @@
   overflow: hidden;
   color: var(--color-muted-foreground);
   font-size: var(--text-sm);
+  hyphens: auto;
   line-height: 1.55;
+  overflow-wrap: break-word;
+  text-wrap: pretty;
+  word-break: normal;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -621,6 +629,13 @@
   padding-top: var(--space-5);
   color: var(--color-muted-foreground);
   font-size: var(--text-xs);
+}
+.wordCardMeta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 .wordCardDelete {
   position: absolute;

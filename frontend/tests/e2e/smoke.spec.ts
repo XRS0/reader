@@ -142,29 +142,48 @@ test('statistics overview shows a complete week and navigates between weeks', as
 })
 
 test('dictionary accepts a Russian word with a definition and no translation', async ({ page }) => {
+  const word = 'Эпистемологическим'
   await page.goto('/dictionary')
   await page.getByRole('button', { name: /Добавить слово|Add word/ }).click()
 
   const dialog = page.getByRole('dialog', { name: /Новое слово|New word/ })
-  await dialog.getByLabel(/^Слово$|^Word$/).fill('Самобытность')
+  await dialog.getByLabel(/^Слово$|^Word$/).fill(word)
   await dialog
     .getByLabel(/Значение \/ описание|Meaning \/ definition/)
     .fill('Неповторимое своеобразие человека или явления.')
   await dialog.getByRole('button', { name: /Добавить слово|Add word/ }).click()
 
   await expect(dialog).toBeHidden()
-  await expect(page.getByText('Самобытность')).toBeVisible()
+  const wordTitle = page.getByText(word, { exact: true })
+  await expect(wordTitle).toBeVisible()
+  await expect
+    .poll(() =>
+      wordTitle.evaluate((element) => {
+        const range = document.createRange()
+        range.selectNodeContents(element)
+        const widthsByLine = new Map<number, number>()
+        for (const rect of range.getClientRects()) {
+          const lineTop = Math.round(rect.top)
+          widthsByLine.set(lineTop, (widthsByLine.get(lineTop) ?? 0) + rect.width)
+        }
+        const lineWidths = Array.from(widthsByLine.values()).filter((width) => width > 0)
+        if (lineWidths.length > 2) return false
+        if (lineWidths.length < 2) return true
+        return Math.min(...lineWidths) / Math.max(...lineWidths) >= 0.45
+      })
+    )
+    .toBe(true)
   await expect(page.getByText('Неповторимое своеобразие человека или явления.')).toBeVisible()
 
   const wordCard = page.getByRole('button', {
-    name: /^(?:Открыть карточку слова «Самобытность»|Open details for “Самобытность”)$/
+    name: /^(?:Открыть карточку слова «Эпистемологическим»|Open details for “Эпистемологическим”)$/
   })
   await expect
     .poll(() => wordCard.evaluate((element) => getComputedStyle(element).backgroundColor))
     .toBe('rgba(0, 0, 0, 0)')
 
   await wordCard.click()
-  const details = page.getByRole('dialog', { name: 'Самобытность' })
+  const details = page.getByRole('dialog', { name: word })
   await expect(
     details.getByRole('paragraph').filter({
       hasText: 'Неповторимое своеобразие человека или явления.'
@@ -187,7 +206,7 @@ test('dictionary accepts a Russian word with a definition and no translation', a
     has: page.getByText(/Действие нельзя отменить|This cannot be undone/)
   })
   await confirmation.getByRole('button', { name: /Удалить|Delete/ }).click()
-  await expect(page.getByText('Самобытность')).toHaveCount(0)
+  await expect(page.getByText(word, { exact: true })).toHaveCount(0)
 })
 
 test('book details allow adding, replacing and removing a custom cover', async ({ page }) => {

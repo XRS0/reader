@@ -160,20 +160,31 @@ export function DictionaryPage() {
                 onClick={() => openEntry(entry)}
               >
                 <span className={styles.wordCardTopline}>
-                  <span className={styles.wordMain}>{entry.original_word}</span>
-                  <StatusBadge status={entry.status} />
+                  <span
+                    className={styles.wordMain}
+                    lang={entry.source_language}
+                    title={entry.original_word}
+                  >
+                    {entry.original_word}
+                  </span>
                 </span>
                 {entry.transcription ? (
                   <span className={styles.wordTranscription}>{entry.transcription}</span>
                 ) : null}
-                <span className={styles.wordCardSummary}>
+                <span
+                  className={styles.wordCardSummary}
+                  lang={entry.translation ? entry.target_language : entry.source_language}
+                >
                   {entry.translation || entry.definition || t('dictionary.noDetails')}
                 </span>
                 <span className={styles.wordCardFooter}>
-                  <span>
-                    {entry.translation
-                      ? `${entry.source_language.toUpperCase()} → ${entry.target_language.toUpperCase()}`
-                      : entry.source_language.toUpperCase()}
+                  <span className={styles.wordCardMeta}>
+                    <span>
+                      {entry.translation
+                        ? `${entry.source_language.toUpperCase()} → ${entry.target_language.toUpperCase()}`
+                        : entry.source_language.toUpperCase()}
+                    </span>
+                    <StatusBadge status={entry.status} />
                   </span>
                   <ChevronRight size={16} aria-hidden="true" />
                 </span>
