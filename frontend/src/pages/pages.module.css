@@ -535,14 +535,26 @@
 }
 .wordCard {
   position: relative;
+  isolation: isolate;
   grid-column: span 4;
   min-height: 168px;
-  border: 1px solid var(--color-border);
+  border: 1px solid color-mix(in srgb, var(--color-foreground) 14%, transparent);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  background: var(--color-background);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-background) 16%, transparent),
+    color-mix(in srgb, var(--color-background) 4%, transparent) 58%,
+    color-mix(in srgb, var(--color-accent) 3%, transparent)
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-foreground) 10%, transparent),
+    0 8px 24px rgb(0 0 0 / 4%);
+  backdrop-filter: blur(18px) saturate(135%);
+  -webkit-backdrop-filter: blur(18px) saturate(135%);
   transition:
     border-color var(--transition-fast),
+    box-shadow var(--transition-fast),
     transform var(--transition-fast);
 }
 .wordCardOpen {
@@ -558,7 +570,10 @@
 }
 .wordCard:hover,
 .wordCard:focus-within {
-  border-color: var(--color-border-strong);
+  border-color: color-mix(in srgb, var(--color-accent) 34%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-foreground) 14%, transparent),
+    0 10px 28px rgb(0 0 0 / 7%);
   transform: translateY(-1px);
 }
 .wordCard:focus-within {
