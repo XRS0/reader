@@ -1,0 +1,179 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+
+jobs:
+  backend:
+    name: Backend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Verify gofmt
+        run: |
+          files=$(gofmt -l .)
+          test -z "$files" || { echo "$files"; exit 1; }
+      - name: Vet
+        run: go vet ./...
+      - name: Unit tests with race detector
+        run: go test -race -short -coverprofile=coverage.out ./...
+      - name: Build commands
+        run: go build ./cmd/...
+
+  backend-lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11
+          working-directory: backend
+
+  integration:
+    name: Backend integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Integration tests via testcontainers
+        working-directory: backend
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: "false"
+        run: go test -count=1 -timeout=15m -tags=integration ./...
+
+  migrations:
+    name: Migration round-trip
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: bookflow
+          POSTGRES_USER: bookflow
+          POSTGRES_PASSWORD: migration_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bookflow -d bookflow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Build migration command
+        working-directory: backend
+        run: go build -o /tmp/bookflow-migrate ./cmd/migrate
+      - name: Up, down, and up again
+        env:
+          DATABASE_URL: postgres://bookflow:migration_test_only@localhost:5432/bookflow?sslmode=disable
+          BOOKFLOW_ENV: test
+          JWT_SIGNING_KEY: migration-test-jwt-secret-at-least-32-characters
+          S3_ENDPOINT: http://127.0.0.1:9000
+          S3_ACCESS_KEY: migration_test
+          S3_SECRET_KEY: migration_test_secret
+        run: |
+          /tmp/bookflow-migrate up
+          /tmp/bookflow-migrate status
+          /tmp/bookflow-migrate down
+          /tmp/bookflow-migrate up
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: ESLint
+        run: npm run lint
+      - name: Prettier
+        run: npm run format:check
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Unit and component tests
+        run: npm run test:coverage
+      - name: Production build
+        run: npm run build
+
+  openapi:
+    name: OpenAPI contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Compare OpenAPI and Gin route inventories
+        run: ./scripts/check-openapi-routes.py
+      - name: Validate OpenAPI 3.1
+        run: npx --yes @redocly/cli@2.39.0 lint backend/openapi/openapi.yaml
+
+  compose:
+    name: Compose model
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Render all Compose profiles
+        run: docker compose --env-file .env.example --profile observability config --quiet
+
+  docker:
+    name: Build ${{ matrix.image }} image
+    runs-on: ubuntu-latest
+    needs: [backend, frontend, openapi, compose]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: backend
+          - image: frontend
+            context: frontend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          push: false
+          tags: bookflow/${{ matrix.image }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

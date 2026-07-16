@@ -1,0 +1,6 @@
+# DESIGN PLAN
+
+- `layout`: Application shell uses a collapsible 248 px desktop sidebar, a compact content header, and one strong content container capped at 1200 px. Redundant Continue and Recent sidebar destinations are removed; their underlying library filters remain available in page controls. The Interface settings section owns one app-theme selector and reveals a compact custom palette only for Custom.
+- `grid`: Page-level content follows a 12-column grid within the 1200 px container. Library sections and book metadata span 12 columns on mobile, 6 on tablet, and intentional 3/4/8-column groupings on desktop. Custom app background, text, and accent inputs share one three-column row and collapse with the existing settings grid on mobile.
+- `spacing`: All dimensions use an 8 px base rhythm (4 px only for icon/text micro-alignment): 8 px palette gaps, 16 px setting-row padding, 24–32 px section spacing, and 48–64 px page breathing room. Theme controls remain flat, with no new cards or decorative surfaces.
+- `typography`: System sans-serif drives UI at 13–16 px with 1.4–1.55 line height; page titles are restrained at 28–32 px and use weight rather than decoration for hierarchy. App and reader custom palettes expose explicit labels and a 4.5:1 contrast warning; reader typography remains independently adjustable.

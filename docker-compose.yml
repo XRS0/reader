@@ -1,0 +1,413 @@
+name: bookflow
+
+x-backend-build: &backend-build
+  context: ./backend
+  dockerfile: Dockerfile
+  target: runtime
+
+x-backend-environment: &backend-environment
+  BOOKFLOW_ENV: ${APP_ENV:-development}
+  APP_ENV: ${APP_ENV:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  LOG_FORMAT: ${LOG_FORMAT:-json}
+  HTTP_ADDR: ${HTTP_ADDR:-:8080}
+  HTTP_READ_TIMEOUT: ${HTTP_READ_TIMEOUT:-15s}
+  HTTP_WRITE_TIMEOUT: ${HTTP_WRITE_TIMEOUT:-30s}
+  HTTP_IDLE_TIMEOUT: ${HTTP_IDLE_TIMEOUT:-60s}
+  HTTP_SHUTDOWN_TIMEOUT: ${HTTP_SHUTDOWN_TIMEOUT:-15s}
+  HTTP_TRUSTED_PROXIES: ${HTTP_TRUSTED_PROXIES:-}
+  DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+  DATABASE_MAX_OPEN_CONNS: ${DATABASE_MAX_OPEN_CONNS:-25}
+  DATABASE_MAX_IDLE_CONNS: ${DATABASE_MAX_IDLE_CONNS:-10}
+  DATABASE_CONN_MAX_LIFETIME: ${DATABASE_CONN_MAX_LIFETIME:-30m}
+  DB_PING_TIMEOUT: ${DB_PING_TIMEOUT:-5s}
+  JWT_SECRET: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY in .env}
+  JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY in .env}
+  JWT_ISSUER: ${JWT_ISSUER:-bookflow}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-bookflow-web}
+  JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+  JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-720h}
+  ARGON2_MEMORY_KIB: ${ARGON2_MEMORY_KIB:-65536}
+  ARGON2_ITERATIONS: ${ARGON2_ITERATIONS:-3}
+  ARGON2_PARALLELISM: ${ARGON2_PARALLELISM:-2}
+  COOKIE_NAME: ${COOKIE_NAME:-bookflow_session}
+  COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+  COOKIE_PATH: ${COOKIE_PATH:-/}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  COOKIE_HTTP_ONLY: ${COOKIE_HTTP_ONLY:-true}
+  COOKIE_SAME_SITE: ${COOKIE_SAME_SITE:-lax}
+  CSRF_SECRET: ${CSRF_SECRET:?set CSRF_SECRET in .env}
+  CSRF_COOKIE_NAME: ${CSRF_COOKIE_NAME:-bookflow_csrf}
+  S3_ENDPOINT: ${RUSTFS_ENDPOINT:-http://rustfs:9000}
+  RUSTFS_PUBLIC_ENDPOINT: ${RUSTFS_PUBLIC_ENDPOINT:-http://localhost:9000}
+  S3_REGION: ${RUSTFS_REGION:-us-east-1}
+  S3_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:?set RUSTFS_ACCESS_KEY in .env}
+  S3_SECRET_KEY: ${RUSTFS_SECRET_KEY:?set RUSTFS_SECRET_KEY in .env}
+  S3_USE_PATH_STYLE: ${RUSTFS_USE_PATH_STYLE:-true}
+  S3_SECURE: "false"
+  RUSTFS_OPERATION_TIMEOUT: ${RUSTFS_OPERATION_TIMEOUT:-30s}
+  RUSTFS_PRESIGN_TTL: ${RUSTFS_PRESIGN_TTL:-5m}
+  RUSTFS_MAX_RETRIES: ${RUSTFS_MAX_RETRIES:-3}
+  RUSTFS_BUCKET_BOOKS_ORIGINAL: ${RUSTFS_BUCKET_BOOKS_ORIGINAL:-books-original}
+  RUSTFS_BUCKET_BOOKS_CONTENT: ${RUSTFS_BUCKET_BOOKS_CONTENT:-books-content}
+  RUSTFS_BUCKET_BOOKS_ASSETS: ${RUSTFS_BUCKET_BOOKS_ASSETS:-books-assets}
+  RUSTFS_BUCKET_BOOKS_COVERS: ${RUSTFS_BUCKET_BOOKS_COVERS:-books-covers}
+  RUSTFS_BUCKET_USER_EXPORTS: ${RUSTFS_BUCKET_USER_EXPORTS:-user-exports}
+  TRANSLATION_PROVIDER: ${TRANSLATION_PROVIDER:-mock}
+  TRANSLATION_API_KEY: ${TRANSLATION_API_KEY:-}
+  TRANSLATION_ENDPOINT: ${TRANSLATION_ENDPOINT:-https://api.openai.com/v1/responses}
+  TRANSLATION_MODEL: ${TRANSLATION_MODEL:-gpt-4.1-mini}
+  TRANSLATION_PROMPT_VERSION: ${TRANSLATION_PROMPT_VERSION:-v1}
+  TRANSLATION_TIMEOUT: ${TRANSLATION_TIMEOUT:-10s}
+  TRANSLATION_MAX_WORD_RUNES: ${TRANSLATION_MAX_WORD_RUNES:-128}
+  TRANSLATION_MAX_TEXT_RUNES: ${TRANSLATION_MAX_TEXT_RUNES:-2000}
+  TRANSLATION_CACHE_TTL: ${TRANSLATION_CACHE_TTL:-720h}
+  TRANSLATION_MAX_RETRIES: ${TRANSLATION_MAX_RETRIES:-2}
+  UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-104857600}
+  EPUB_MAX_FILES: ${EPUB_MAX_FILES:-10000}
+  EPUB_MAX_UNCOMPRESSED_BYTES: ${EPUB_MAX_UNCOMPRESSED_BYTES:-524288000}
+  EPUB_MAX_COMPRESSION_RATIO: ${EPUB_MAX_COMPRESSION_RATIO:-100}
+  MAX_REQUEST_BODY_BYTES: ${MAX_REQUEST_BODY_BYTES:-1048576}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+  CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-true}
+  RATE_LIMIT_LOGIN: ${RATE_LIMIT_LOGIN:-10}
+  RATE_LIMIT_REGISTER: ${RATE_LIMIT_REGISTER:-5}
+  RATE_LIMIT_TRANSLATION: ${RATE_LIMIT_TRANSLATION:-60}
+  READING_HEARTBEAT_INTERVAL: ${READING_HEARTBEAT_INTERVAL:-15s}
+  READING_HEARTBEAT_GRACE: ${READING_HEARTBEAT_GRACE:-10s}
+  READING_IDLE_THRESHOLD: ${READING_IDLE_THRESHOLD:-60s}
+  READING_MAX_CREDIT_INTERVAL: ${READING_MAX_CREDIT_INTERVAL:-30s}
+  READING_STALE_AFTER: ${READING_STALE_AFTER:-2m}
+  WORKER_ID: ${WORKER_ID:-bookflow-worker-local}
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+  WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-1s}
+  WORKER_JOB_TIMEOUT: ${WORKER_JOB_TIMEOUT:-5m}
+  WORKER_HEARTBEAT_INTERVAL: ${WORKER_HEARTBEAT_INTERVAL:-15s}
+  WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-5}
+  WORKER_STALE_LOCK_AFTER: ${WORKER_STALE_LOCK_AFTER:-10m}
+  OTEL_ENABLED: ${OTEL_ENABLED:-false}
+  OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-bookflow}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+  OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}
+  OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
+  OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-deployment.environment=development,service.namespace=bookflow}
+  OTEL_TRACE_RATIO: ${OTEL_TRACE_RATIO:-1.0}
+
+x-backend-service: &backend-service
+  build: *backend-build
+  init: true
+  restart: unless-stopped
+  environment: *backend-environment
+  networks:
+    - internal
+    - edge
+  security_opt:
+    - no-new-privileges:true
+  stop_grace_period: 20s
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bookflow}
+      POSTGRES_USER: ${POSTGRES_USER:-bookflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - max_connections=150
+      - -c
+      - log_min_duration_statement=500
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      - internal
+      - edge
+    security_opt:
+      - no-new-privileges:true
+
+  rustfs:
+    image: ${RUSTFS_IMAGE:-rustfs/rustfs:1.0.0-beta.4}
+    restart: unless-stopped
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: ${RUSTFS_CONSOLE_ENABLE:-true}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:?set RUSTFS_ACCESS_KEY in .env}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:?set RUSTFS_SECRET_KEY in .env}
+      RUSTFS_OBS_LOGGER_LEVEL: info
+      RUSTFS_OBS_LOG_DIRECTORY: /logs
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - rustfs-data:/data
+      - rustfs-logs:/logs
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - internal
+      - edge
+    security_opt:
+      - no-new-privileges:true
+
+  rustfs-init:
+    image: amazon/aws-cli:2.27.49
+    restart: "no"
+    entrypoint: ["/bin/sh", "/scripts/init-rustfs.sh"]
+    environment:
+      AWS_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY:?set RUSTFS_ACCESS_KEY in .env}
+      AWS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:?set RUSTFS_SECRET_KEY in .env}
+      AWS_DEFAULT_REGION: ${RUSTFS_REGION:-us-east-1}
+      AWS_EC2_METADATA_DISABLED: "true"
+      RUSTFS_ENDPOINT: http://rustfs:9000
+      RUSTFS_BUCKETS: >-
+        ${RUSTFS_BUCKET_BOOKS_ORIGINAL:-books-original}
+        ${RUSTFS_BUCKET_BOOKS_CONTENT:-books-content}
+        ${RUSTFS_BUCKET_BOOKS_ASSETS:-books-assets}
+        ${RUSTFS_BUCKET_BOOKS_COVERS:-books-covers}
+        ${RUSTFS_BUCKET_USER_EXPORTS:-user-exports}
+    volumes:
+      - ./scripts/init-rustfs.sh:/scripts/init-rustfs.sh:ro
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+
+  migrations:
+    build: *backend-build
+    restart: "no"
+    command: ["/app/migrate", "up"]
+    environment: *backend-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+
+  api:
+    <<: *backend-service
+    command: ["/app/api"]
+    environment:
+      <<: *backend-environment
+      OTEL_SERVICE_NAME: bookflow-api
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+      rustfs-init:
+        condition: service_completed_successfully
+    healthcheck:
+      # BusyBox/wget --spider uses HEAD, while the API intentionally exposes a
+      # GET-only liveness route. Fetch and discard the body so health probes use GET.
+      test: ["CMD", "wget", "--quiet", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:8080/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+
+  worker:
+    <<: *backend-service
+    command: ["/app/worker"]
+    environment:
+      <<: *backend-environment
+      OTEL_SERVICE_NAME: bookflow-worker
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+      rustfs-init:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+        VITE_APP_NAME: ${VITE_APP_NAME:-BookFlow}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    networks:
+      - edge
+    security_opt:
+      - no-new-privileges:true
+
+  # The complete Uptrace stack is opt-in because ClickHouse is resource-heavy.
+  # Start it with: docker compose --profile observability up -d
+  uptrace-clickhouse:
+    image: clickhouse/clickhouse-server:26.3
+    profiles: ["observability"]
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: uptrace
+      CLICKHOUSE_USER: uptrace
+      CLICKHOUSE_PASSWORD: ${UPTRACE_CLICKHOUSE_PASSWORD:?set UPTRACE_CLICKHOUSE_PASSWORD in .env}
+    volumes:
+      - uptrace-clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+
+  uptrace-postgres:
+    image: postgres:17-alpine
+    profiles: ["observability"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: uptrace
+      POSTGRES_USER: uptrace
+      POSTGRES_PASSWORD: ${UPTRACE_POSTGRES_PASSWORD:?set UPTRACE_POSTGRES_PASSWORD in .env}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - uptrace-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uptrace -d uptrace"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+
+  uptrace-redis:
+    image: redis:7.4-alpine
+    profiles: ["observability"]
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${UPTRACE_REDIS_PASSWORD:?set UPTRACE_REDIS_PASSWORD in .env}
+    volumes:
+      - uptrace-redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a '$${UPTRACE_REDIS_PASSWORD}' ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    environment:
+      UPTRACE_REDIS_PASSWORD: ${UPTRACE_REDIS_PASSWORD:?set UPTRACE_REDIS_PASSWORD in .env}
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+
+  uptrace:
+    image: ${UPTRACE_IMAGE:-uptrace/uptrace:2.1.0-beta.7}
+    profiles: ["observability"]
+    restart: unless-stopped
+    environment:
+      UPTRACE_SECRET: ${UPTRACE_SECRET:?set UPTRACE_SECRET in .env}
+      UPTRACE_ADMIN_EMAIL: ${UPTRACE_ADMIN_EMAIL:-admin@uptrace.local}
+      UPTRACE_ADMIN_PASSWORD: ${UPTRACE_ADMIN_PASSWORD:?set UPTRACE_ADMIN_PASSWORD in .env}
+      UPTRACE_USER_TOKEN: ${UPTRACE_USER_TOKEN:?set UPTRACE_USER_TOKEN in .env}
+      UPTRACE_PROJECT_TOKEN: ${UPTRACE_PROJECT_TOKEN:?set UPTRACE_PROJECT_TOKEN in .env}
+      UPTRACE_POSTGRES_PASSWORD: ${UPTRACE_POSTGRES_PASSWORD:?set UPTRACE_POSTGRES_PASSWORD in .env}
+      UPTRACE_CLICKHOUSE_PASSWORD: ${UPTRACE_CLICKHOUSE_PASSWORD:?set UPTRACE_CLICKHOUSE_PASSWORD in .env}
+      UPTRACE_REDIS_PASSWORD: ${UPTRACE_REDIS_PASSWORD:?set UPTRACE_REDIS_PASSWORD in .env}
+    volumes:
+      - ./deploy/uptrace/uptrace.yml:/etc/uptrace/config.yml:ro
+    ports:
+      - "127.0.0.1:14318:80"
+    depends_on:
+      uptrace-clickhouse:
+        condition: service_healthy
+      uptrace-postgres:
+        condition: service_healthy
+      uptrace-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks:
+      - internal
+      - edge
+    security_opt:
+      - no-new-privileges:true
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    profiles: ["observability"]
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    environment:
+      UPTRACE_DSN: http://${UPTRACE_PROJECT_TOKEN:?set UPTRACE_PROJECT_TOKEN in .env}@uptrace:80?grpc=4317
+    volumes:
+      - ./deploy/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    depends_on:
+      uptrace:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "components"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - internal
+      - edge
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  internal:
+    internal: true
+  edge:
+
+volumes:
+  postgres-data:
+  rustfs-data:
+  rustfs-logs:
+  uptrace-clickhouse-data:
+  uptrace-postgres-data:
+  uptrace-redis-data:

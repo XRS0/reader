@@ -1,0 +1,7 @@
+extends:
+  - recommended
+
+rules:
+  # A successful authorized asset request deliberately returns HTTP 307 to a
+  # short-lived RustFS URL, so that operation has no artificial 2xx response.
+  operation-2xx-response: off

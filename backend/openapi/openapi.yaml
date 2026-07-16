@@ -1,0 +1,4526 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: BookFlow API
+  version: 0.1.0
+  summary: API for a private browser-based ebook reader
+  description: Contract for the BookFlow modular monolith. All timestamps are RFC 3339 UTC unless a timezone parameter explicitly
+    controls aggregation. Authentication can use the HttpOnly session cookie in browsers or a bearer access token for trusted
+    clients. Error responses never expose SQL, stack traces, object-store keys, provider diagnostics, or secrets.
+  license:
+    name: All rights reserved
+    identifier: LicenseRef-Proprietary
+servers:
+- url: /
+  description: Same-origin API (frontend proxy in browser deployments)
+security:
+- cookieAuth: []
+- bearerAuth: []
+tags:
+- name: Health
+  description: Liveness, dependency readiness and Prometheus metrics.
+- name: Auth
+  description: Registration, token rotation and session revocation.
+- name: Books
+  description: User-owned uploads, metadata and parsed content.
+- name: Reader
+  description: Conflict-safe progress and reading preferences.
+- name: Reading sessions
+  description: Server-time based active/idle accounting.
+- name: Translations
+  description: Bounded-context word and text translation.
+- name: Dictionary
+  description: Deduplicated vocabulary and occurrences.
+- name: Bookmarks
+  description: User-owned saved reading positions.
+- name: Highlights
+  description: User-owned anchored text highlights.
+- name: Notes
+  description: Personal, book, highlight and quote notes with versioned blocks.
+- name: Statistics
+  description: Timezone-aware reading and vocabulary aggregates.
+paths:
+  /health/live:
+    get:
+      operationId: getLiveness
+      summary: Check process liveness
+      tags:
+      - Health
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Process is alive
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      security: []
+  /health/ready:
+    get:
+      operationId: getReadiness
+      summary: Check dependency readiness
+      tags:
+      - Health
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Dependencies are ready
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessStatus'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      description: Checks PostgreSQL and RustFS connectivity without returning credentials or internal errors.
+      security: []
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Scrape Prometheus metrics
+      tags:
+      - Health
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Prometheus exposition
+          content:
+            text/plain:
+              schema:
+                type: string
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      description: Deployment should network-restrict this endpoint; it is unauthenticated for Prometheus compatibility.
+      security: []
+  /api/v1/auth/register:
+    post:
+      operationId: register
+      summary: Register a user
+      tags:
+      - Auth
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      responses:
+        '201':
+          description: User and browser session created
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            X-CSRF-Token:
+              $ref: '#/components/headers/CsrfToken'
+            Set-Cookie:
+              $ref: '#/components/headers/SetCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              default:
+                value:
+                  email: reader@example.com
+                  password: correct horse battery staple
+                  display_name: Reader
+                  locale: en
+                  timezone: Asia/Yekaterinburg
+                  device_key: browser-installation-uuid
+                  device_name: Firefox on laptop
+      security: []
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      summary: Log in
+      tags:
+      - Auth
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Authenticated; refresh/session cookie is rotated
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            X-CSRF-Token:
+              $ref: '#/components/headers/CsrfToken'
+            Set-Cookie:
+              $ref: '#/components/headers/SetCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              default:
+                value:
+                  email: reader@example.com
+                  password: correct horse battery staple
+                  device_name: Firefox on laptop
+      security: []
+  /api/v1/auth/refresh:
+    post:
+      operationId: refreshSession
+      summary: Rotate refresh token
+      tags:
+      - Auth
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Session rotated; replacement cookies set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+          headers:
+            X-CSRF-Token:
+              $ref: '#/components/headers/CsrfToken'
+            Set-Cookie:
+              $ref: '#/components/headers/SetCookie'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      description: Consumes the current refresh token exactly once. Reuse revokes the affected token family.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      security: []
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      summary: Log out this session
+      tags:
+      - Auth
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: Session revoked
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+  /api/v1/auth/logout-all:
+    post:
+      operationId: logoutAll
+      summary: Log out all devices
+      tags:
+      - Auth
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: All sessions and refresh tokens revoked
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/auth/me:
+    get:
+      operationId: getCurrentUser
+      summary: Get current user
+      tags:
+      - Auth
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Current user and device
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/books:
+    post:
+      operationId: uploadBook
+      summary: Upload a book
+      tags:
+      - Books
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '202':
+          description: New book accepted for asynchronous processing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookSummary'
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            X-Book-Duplicate:
+              $ref: '#/components/headers/BookDuplicate'
+        '200':
+          description: Duplicate upload; existing book returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookSummary'
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            X-Book-Duplicate:
+              $ref: '#/components/headers/BookDuplicate'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      description: Validates size, extension, MIME and signature, computes SHA-256, persists the original, and enqueues processing.
+        The original filename is metadata only.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BookUploadRequest'
+    get:
+      operationId: listBooks
+      summary: List books
+      tags:
+      - Books
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Search'
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: format
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - all
+          - epub
+          - fb2
+          - txt
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - added
+          - updated
+          - last_read
+          - title
+          - progress
+      - name: favorite
+        in: query
+        required: false
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: Owned books
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/books/{bookId}:
+    get:
+      operationId: getBook
+      summary: Get a book
+      tags:
+      - Books
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      responses:
+        '200':
+          description: Book details
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      operationId: updateBook
+      summary: Update book metadata
+      tags:
+      - Books
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Updated book
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookDetail'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookUpdateRequest'
+    delete:
+      operationId: deleteBook
+      summary: Delete a book
+      tags:
+      - Books
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: Deletion accepted
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+      description: Marks database state for deletion and queues idempotent object cleanup. Never accepts an object key from
+        the client.
+  /api/v1/books/{bookId}/reprocess:
+    post:
+      operationId: reprocessBook
+      summary: Reprocess a book
+      tags:
+      - Books
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '202':
+          description: Reprocessing queued; no response body.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+      description: Creates at most one runnable processing job for the requested source version. Existing original objects
+        are preserved on failure.
+  /api/v1/books/{bookId}/processing-status:
+    get:
+      operationId: getBookProcessingStatus
+      summary: Get processing status
+      tags:
+      - Books
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      responses:
+        '200':
+          description: Current processing state
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessingStatus'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/books/{bookId}/toc:
+    get:
+      operationId: getBookTableOfContents
+      summary: Get table of contents
+      tags:
+      - Books
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      responses:
+        '200':
+          description: Hierarchical table of contents
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TocItem'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/books/{bookId}/chapters/{chapterId}:
+    get:
+      operationId: getBookChapter
+      summary: Get one chapter
+      tags:
+      - Books
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      - $ref: '#/components/parameters/ChapterId'
+      responses:
+        '200':
+          description: Sanitized chapter
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/PrivateCache'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Chapter'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+      description: Returns one sanitized, versioned chapter; it never streams the complete book.
+  /api/v1/books/{bookId}/download:
+    get:
+      operationId: downloadBook
+      summary: Create original-file download URL
+      tags:
+      - Books
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      responses:
+        '200':
+          description: Short-lived presigned URL
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignedDownload'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/books/{bookId}/progress:
+    get:
+      operationId: getReadingProgress
+      summary: Get reading progress
+      tags:
+      - Reader
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      responses:
+        '200':
+          description: Current server progress
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            ETag:
+              $ref: '#/components/headers/RevisionETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadingProgress'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+    put:
+      operationId: putReadingProgress
+      summary: Update reading progress
+      tags:
+      - Reader
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      - $ref: '#/components/parameters/IfMatch'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Progress accepted
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            ETag:
+              $ref: '#/components/headers/RevisionETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadingProgress'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ProgressConflict'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      description: Uses revision/If-Match optimistic concurrency. An older revision cannot overwrite newer cross-device state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadingProgressUpdate'
+            examples:
+              chapter-offset:
+                value:
+                  chapter_id: 0196d44a-629e-7be1-8a9d-c61e024b86e2
+                  locator_type: chapter_offset
+                  locator:
+                    character_offset: 1380
+                    text_anchor: the quiet river
+                  character_offset: 1380
+                  progress_percent: 37.42
+                  scroll_percent: 61.1
+                  revision: 8
+                  client_id: web-0196
+                  device_id: 0196d44a-240f-7cdd-8365-5dcefa1c60ff
+  /api/v1/reader/preferences:
+    get:
+      operationId: getReaderPreferences
+      summary: Get global reader preferences
+      tags:
+      - Reader
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Global preferences
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReaderPreferences'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      operationId: putReaderPreferences
+      summary: Replace global reader preferences
+      tags:
+      - Reader
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Saved preferences
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReaderPreferences'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReaderPreferencesUpdate'
+  /api/v1/books/{bookId}/reader-preferences:
+    get:
+      operationId: getBookReaderPreferences
+      summary: Get per-book reader preferences
+      tags:
+      - Reader
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      responses:
+        '200':
+          description: Effective book preferences.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReaderPreferences'
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+    put:
+      operationId: putBookReaderPreferences
+      summary: Replace per-book reader preferences
+      tags:
+      - Reader
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Book preferences saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReaderPreferences'
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReaderPreferencesUpdate'
+  /api/v1/reading-sessions:
+    post:
+      operationId: startReadingSession
+      summary: Start a reading session
+      tags:
+      - Reading sessions
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '201':
+          description: Session started
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadingSession'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadingSessionStart'
+    get:
+      operationId: listReadingSessions
+      summary: List reading sessions
+      tags:
+      - Reading sessions
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/BookIdQuery'
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+      responses:
+        '200':
+          description: Cursor-paginated sessions
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadingSessionList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/reading-sessions/{sessionId}/heartbeat:
+    post:
+      operationId: heartbeatReadingSession
+      summary: Record reading heartbeat
+      tags:
+      - Reading sessions
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/SessionId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Heartbeat recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadingSession'
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/SequenceConflict'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      description: Credits a bounded server-time interval only once per idempotency key and monotonically increasing sequence.
+        Client time is diagnostic, not authoritative.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadingHeartbeat'
+            examples:
+              active:
+                value:
+                  locator:
+                    chapter_id: 0196d44a-629e-7be1-8a9d-c61e024b86e2
+                    character_offset: 1440
+                  progress_percent: 37.55
+                  tab_visible: true
+                  window_focused: true
+                  user_active: true
+                  milliseconds_since_interaction: 4200
+                  client_timestamp: '2026-07-15T18:30:15Z'
+                  sequence_number: 42
+  /api/v1/reading-sessions/{sessionId}/finish:
+    post:
+      operationId: finishReadingSession
+      summary: Finish a reading session
+      tags:
+      - Reading sessions
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/SessionId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: Session finished; no response body.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      description: Idempotent. Repeating a finish remains a 204 and never adds reading time twice.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadingSessionFinish'
+  /api/v1/reading-sessions/{sessionId}:
+    get:
+      operationId: getReadingSession
+      summary: Get a reading session
+      tags:
+      - Reading sessions
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Owned session
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadingSession'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/translations/word:
+    post:
+      operationId: translateWord
+      summary: Translate one word
+      tags:
+      - Translations
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Translated word; may be served from PostgreSQL cache
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WordTranslation'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/TranslationFailure'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranslationRequest'
+            examples:
+              default:
+                value:
+                  source_language: en
+                  target_language: ru
+                  text: serendipity
+                  context: It was a moment of pure serendipity.
+                  book_id: 0196d44a-4473-74ce-af5f-b984817867c2
+                  chapter_id: 0196d44a-629e-7be1-8a9d-c61e024b86e2
+                  locator:
+                    character_offset: 525
+  /api/v1/translations/text:
+    post:
+      operationId: translateText
+      summary: Translate a selected phrase
+      tags:
+      - Translations
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Translated phrase
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TextTranslation'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/TranslationFailure'
+      description: Only the selection and bounded surrounding context are sent to an external provider; never a whole book.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranslationRequest'
+  /api/v1/translations/detect-language:
+    post:
+      operationId: detectLanguage
+      summary: Detect selected-text language
+      tags:
+      - Translations
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Detected language
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LanguageDetection'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LanguageDetectionRequest'
+  /api/v1/dictionary:
+    get:
+      operationId: listDictionaryEntries
+      summary: List dictionary entries
+      tags:
+      - Dictionary
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Search'
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/DictionaryStatus'
+      - name: source_language
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: language
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Legacy alias for source_language.
+      responses:
+        '200':
+          description: Cursor-paginated vocabulary
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryEntryList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createDictionaryEntry
+      summary: Add or encounter a dictionary word
+      tags:
+      - Dictionary
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '201':
+          description: Created or existing entry
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryEntry'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      description: Atomically upserts by user/source/target/normalized word, increments encounter count, and optionally creates
+        an occurrence.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DictionaryEntryCreate'
+  /api/v1/dictionary/{entryId}:
+    get:
+      operationId: getDictionaryEntry
+      summary: Get a dictionary entry
+      tags:
+      - Dictionary
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/EntryId'
+      responses:
+        '200':
+          description: Entry details
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryEntry'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      operationId: updateDictionaryEntry
+      summary: Update a dictionary entry
+      tags:
+      - Dictionary
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/EntryId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Updated entry
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryEntry'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DictionaryEntryUpdate'
+    delete:
+      operationId: deleteDictionaryEntry
+      summary: Soft-delete a dictionary entry
+      tags:
+      - Dictionary
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/EntryId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: Entry deleted
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/dictionary/{entryId}/restore:
+    post:
+      operationId: restoreDictionaryEntry
+      summary: Restore a deleted dictionary entry
+      tags:
+      - Dictionary
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/EntryId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Restored entry
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryEntry'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/dictionary/{entryId}/occurrences:
+    post:
+      operationId: createWordOccurrence
+      summary: Add a word occurrence
+      tags:
+      - Dictionary
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/EntryId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '201':
+          description: Occurrence recorded and encounter count updated
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WordOccurrence'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WordOccurrenceCreate'
+    get:
+      operationId: listWordOccurrences
+      summary: List word occurrences
+      tags:
+      - Dictionary
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/EntryId'
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+      responses:
+        '200':
+          description: Cursor-paginated occurrences
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WordOccurrenceList'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/dictionary/export:
+    post:
+      operationId: exportDictionary
+      summary: Create dictionary export
+      tags:
+      - Dictionary
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: JSON export returned synchronously.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryExport'
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/books/{bookId}/bookmarks:
+    get:
+      operationId: listBookBookmarks
+      summary: List book bookmarks
+      tags:
+      - Bookmarks
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      responses:
+        '200':
+          description: Bookmarks
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookmarkList'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+    post:
+      operationId: createBookmark
+      summary: Create a bookmark
+      tags:
+      - Bookmarks
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '201':
+          description: Bookmark created
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bookmark'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookmarkCreate'
+  /api/v1/bookmarks/{bookmarkId}:
+    patch:
+      operationId: updateBookmark
+      summary: Update a bookmark
+      tags:
+      - Bookmarks
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookmarkId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Bookmark updated
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bookmark'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookmarkUpdate'
+    delete:
+      operationId: deleteBookmark
+      summary: Delete a bookmark
+      tags:
+      - Bookmarks
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookmarkId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: Bookmark deleted
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/books/{bookId}/highlights:
+    get:
+      operationId: listBookHighlights
+      summary: List book highlights
+      tags:
+      - Highlights
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      responses:
+        '200':
+          description: Highlights
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HighlightList'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+    post:
+      operationId: createHighlight
+      summary: Create a highlight
+      tags:
+      - Highlights
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '201':
+          description: Highlight created
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Highlight'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HighlightCreate'
+  /api/v1/highlights/{highlightId}:
+    patch:
+      operationId: updateHighlight
+      summary: Update a highlight
+      tags:
+      - Highlights
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/HighlightId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Highlight updated
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Highlight'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HighlightUpdate'
+    delete:
+      operationId: deleteHighlight
+      summary: Delete a highlight
+      tags:
+      - Highlights
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/HighlightId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: Highlight deleted
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/notes:
+    get:
+      operationId: listNotes
+      summary: List notes
+      tags:
+      - Notes
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Search'
+      - $ref: '#/components/parameters/BookIdQuery'
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+      responses:
+        '200':
+          description: Notes
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createNote
+      summary: Create a note
+      tags:
+      - Notes
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '201':
+          description: Note created
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteCreate'
+  /api/v1/notes/{noteId}:
+    get:
+      operationId: getNote
+      summary: Get a note
+      tags:
+      - Notes
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/NoteId'
+      responses:
+        '200':
+          description: Note and versioned blocks
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      operationId: updateNote
+      summary: Update a note
+      tags:
+      - Notes
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/NoteId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Note updated
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteUpdate'
+    delete:
+      operationId: deleteNote
+      summary: Delete a note
+      tags:
+      - Notes
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/NoteId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: Note deleted
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/statistics/overview:
+    get:
+      operationId: getStatisticsOverview
+      summary: Get statistics overview
+      tags:
+      - Statistics
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/Timezone'
+      responses:
+        '200':
+          description: Timezone-aware statistics
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsOverview'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      description: All-time totals; timezone is used for streak calendar boundaries.
+  /api/v1/statistics/daily:
+    get:
+      operationId: getDailyStatistics
+      summary: Get daily statistics
+      tags:
+      - Statistics
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/DateFrom'
+      - $ref: '#/components/parameters/DateTo'
+      - $ref: '#/components/parameters/Timezone'
+      responses:
+        '200':
+          description: Daily statistics.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DailyStatistics'
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      description: Buckets sessions by local day between optional RFC 3339 from/to instants.
+  /api/v1/statistics/weekly:
+    get:
+      operationId: getWeeklyStatistics
+      summary: Get weekly statistics
+      tags:
+      - Statistics
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/DateFrom'
+      - $ref: '#/components/parameters/DateTo'
+      - $ref: '#/components/parameters/Timezone'
+      responses:
+        '200':
+          description: Timezone-aware statistics
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeSeriesStatistics'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      description: Buckets sessions by local week between optional RFC 3339 from/to instants.
+  /api/v1/statistics/monthly:
+    get:
+      operationId: getMonthlyStatistics
+      summary: Get monthly statistics
+      tags:
+      - Statistics
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/DateFrom'
+      - $ref: '#/components/parameters/DateTo'
+      - $ref: '#/components/parameters/Timezone'
+      responses:
+        '200':
+          description: Timezone-aware statistics
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeSeriesStatistics'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      description: Buckets sessions by local month between optional RFC 3339 from/to instants.
+  /api/v1/statistics/books:
+    get:
+      operationId: getBookStatistics
+      summary: Get per-book statistics
+      tags:
+      - Statistics
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+      responses:
+        '200':
+          description: Per-book statistics.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BookStatistics'
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      description: Paginated per-book aggregate rows; this endpoint does not apply a date filter.
+  /api/v1/statistics/sessions:
+    get:
+      operationId: getSessionStatistics
+      summary: Get session history
+      tags:
+      - Statistics
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+      responses:
+        '200':
+          description: Timezone-aware statistics
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadingSessionList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      description: Paginated reading-session history; this endpoint does not apply a date filter.
+  /api/v1/statistics/streak:
+    get:
+      operationId: getStreakStatistics
+      summary: Get reading streak
+      tags:
+      - Statistics
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/Timezone'
+      responses:
+        '200':
+          description: Timezone-aware statistics
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreakStatistics'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      description: Current and longest streak calculated in the requested IANA timezone.
+  /api/v1/statistics/dictionary:
+    get:
+      operationId: getDictionaryStatistics
+      summary: Get dictionary statistics
+      tags:
+      - Statistics
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Timezone-aware statistics
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryStatistics'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      description: All-time dictionary status and encounter totals.
+  /api/v1/devices:
+    get:
+      operationId: listDevices
+      summary: List active devices
+      tags:
+      - Auth
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Active and recently revoked user devices
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/devices/{deviceId}:
+    delete:
+      operationId: revokeDevice
+      summary: Revoke a device and its sessions
+      tags:
+      - Auth
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/DeviceId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: Device revoked
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+      description: A user cannot revoke a device owned by another user; associated refresh sessions are revoked transactionally.
+  /api/v1/books/{bookId}/assets/{assetId}:
+    get:
+      operationId: getBookAsset
+      summary: Redirect to an authorized book asset
+      tags:
+      - Books
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      - $ref: '#/components/parameters/AssetId'
+      responses:
+        '307':
+          description: Temporary redirect to a short-lived presigned asset URL
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            Location:
+              description: Short-lived presigned RustFS URL.
+              schema:
+                type: string
+                format: uri
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+      description: The API verifies book and asset ownership before signing; it never accepts an object key from the client.
+components:
+  schemas:
+    ErrorCode:
+      type: string
+      pattern: ^[A-Z][A-Z0-9_]+$
+      description: Stable machine-readable code. Clients must tolerate newly added codes.
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string
+            details:
+              description: Structured details or null.
+            request_id:
+              type: string
+              format: uuid
+          required:
+          - code
+          - message
+          - details
+          - request_id
+      required:
+      - error
+      example:
+        error:
+          code: BOOK_NOT_FOUND
+          message: Book was not found
+          details: null
+          request_id: 0196d44a-0ee0-7530-9b4a-f4bea9e8e590
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+        time:
+          type: string
+          format: date-time
+      required:
+      - status
+      - time
+    ReadinessStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          const: ready
+      required:
+      - status
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        locale:
+          type: string
+          enum:
+          - ru
+          - en
+        timezone:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - email
+      - display_name
+      - locale
+      - timezone
+      - created_at
+      - updated_at
+    Device:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        device_key:
+          type: string
+        name:
+          type: string
+        user_agent:
+          type: string
+        last_seen_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - device_key
+      - name
+      - user_agent
+      - last_seen_at
+      - created_at
+    RegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 10
+          maxLength: 1024
+          writeOnly: true
+        display_name:
+          type: string
+          maxLength: 100
+        locale:
+          type: string
+          enum:
+          - en
+          - ru
+          default: en
+        timezone:
+          type: string
+          default: UTC
+          description: IANA timezone name.
+        device_key:
+          type: string
+          maxLength: 200
+        device_name:
+          type: string
+          maxLength: 100
+      required:
+      - email
+      - password
+      - display_name
+      additionalProperties: false
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          writeOnly: true
+        device_key:
+          type: string
+          maxLength: 200
+        device_name:
+          type: string
+          maxLength: 100
+      required:
+      - email
+      - password
+      additionalProperties: false
+    RefreshRequest:
+      type: object
+      properties:
+        refresh_token:
+          type: string
+          minLength: 32
+          writeOnly: true
+      description: Non-browser clients may submit an explicit refresh token. Browser cookie auth sends no JSON token and normally
+        omits the body.
+      additionalProperties: false
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        device:
+          $ref: '#/components/schemas/Device'
+        access_expires_at:
+          type: string
+          format: date-time
+        refresh_expires_at:
+          type: string
+          format: date-time
+      required:
+      - user
+      - device
+      - access_expires_at
+      - refresh_expires_at
+      description: Safe browser-auth response. Access and refresh token values are set only in HttpOnly cookies and are never
+        returned in this JSON body.
+    CurrentUserResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+      required:
+      - user
+    BookFormat:
+      type: string
+      enum:
+      - epub
+      - fb2
+      - txt
+    BookProcessingStatus:
+      type: string
+      enum:
+      - uploaded
+      - queued
+      - processing
+      - ready
+      - failed
+    BookUploadRequest:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+          description: EPUB, FB2 or UTF-8 TXT; the server verifies extension, MIME and content.
+      required:
+      - file
+    BookSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        author:
+          type: string
+        format:
+          $ref: '#/components/schemas/BookFormat'
+        language:
+          type: string
+        description:
+          type: string
+        processing_status:
+          $ref: '#/components/schemas/BookProcessingStatus'
+        processing_error:
+          type: string
+        added_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        is_favorite:
+          type: boolean
+        tags:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+        progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        current_chapter_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        estimated_minutes_remaining:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+        last_read_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        original_filename:
+          type: string
+        original_size:
+          type: integer
+          minimum: 0
+        cover_url:
+          type: string
+          format: uri
+        processing_version:
+          type: integer
+          minimum: 1
+      required:
+      - id
+      - title
+      - author
+      - format
+      - language
+      - processing_status
+      - added_at
+      - updated_at
+      - is_favorite
+      - tags
+      - progress_percent
+      - original_filename
+      - original_size
+      - processing_version
+    BookDetail:
+      $ref: '#/components/schemas/BookSummary'
+    BookUpdateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 500
+        author:
+          type: string
+          maxLength: 500
+        language:
+          type: string
+          maxLength: 32
+        description:
+          type: string
+          maxLength: 20000
+        is_favorite:
+          type: boolean
+        tags:
+          type: array
+          items:
+            type: string
+            maxLength: 100
+          maxItems: 20
+      additionalProperties: false
+    ProcessingStatus:
+      type: object
+      properties:
+        book_id:
+          type: string
+          format: uuid
+        processing_status:
+          $ref: '#/components/schemas/BookProcessingStatus'
+        processing_error:
+          type: string
+        processing_version:
+          type: integer
+          minimum: 1
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - book_id
+      - processing_status
+      - processing_error
+      - processing_version
+      - updated_at
+    BookList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookSummary'
+        total_count:
+          type: integer
+          minimum: 0
+        next_cursor:
+          type:
+          - string
+          - 'null'
+        has_more:
+          type: boolean
+      required:
+      - items
+      - total_count
+      - next_cursor
+      - has_more
+    TocItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        chapter_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        level:
+          type: integer
+          minimum: 0
+        order:
+          type: integer
+          minimum: 0
+      required:
+      - id
+      - chapter_id
+      - title
+      - level
+      - order
+    Chapter:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        book_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        order:
+          type: integer
+          minimum: 0
+        html:
+          type: string
+        plain_text:
+          type: string
+        previous_chapter_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        next_chapter_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        word_count:
+          type: integer
+          minimum: 0
+      required:
+      - id
+      - book_id
+      - title
+      - order
+      - html
+      - plain_text
+      - previous_chapter_id
+      - next_chapter_id
+      - word_count
+    PresignedDownload:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        expires_in:
+          type: integer
+          minimum: 1
+      required:
+      - url
+      - expires_in
+    Locator:
+      description: Arbitrary valid JSON locator. Individual response DTOs may serialize it as a JSON-text string.
+    ReadingProgress:
+      type: object
+      properties:
+        book_id:
+          type: string
+          format: uuid
+        chapter_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        locator_type:
+          type: string
+        locator:
+          type: string
+          description: JSON-text representation of the stored locator.
+        character_offset:
+          type: integer
+          minimum: 0
+        text_anchor:
+          type: string
+        progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        scroll_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        revision:
+          type: integer
+          minimum: 0
+        client_id:
+          type: string
+        device_id:
+          type: string
+          format: uuid
+        server_timestamp:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - book_id
+      - chapter_id
+      - locator_type
+      - locator
+      - character_offset
+      - text_anchor
+      - progress_percent
+      - scroll_percent
+      - revision
+      - client_id
+      - server_timestamp
+      - updated_at
+    ReadingProgressUpdate:
+      type: object
+      properties:
+        chapter_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        locator_type:
+          type: string
+          minLength: 1
+          maxLength: 50
+        locator:
+          $ref: '#/components/schemas/Locator'
+        character_offset:
+          type: integer
+          minimum: 0
+        text_anchor:
+          type: string
+          maxLength: 512
+        chapter_progress:
+          type: number
+          minimum: 0
+          maximum: 100
+        progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        scroll_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        revision:
+          type: integer
+          minimum: 0
+        client_id:
+          type: string
+          maxLength: 200
+        device_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        client_timestamp:
+          type: string
+          format: date-time
+      required:
+      - locator_type
+      additionalProperties: false
+    ReaderPreferencesUpdate:
+      type: object
+      properties:
+        theme:
+          type: string
+          enum:
+          - light
+          - warm
+          - sepia
+          - dark
+          - custom
+        background_color:
+          type: string
+          pattern: ^#[0-9a-fA-F]{6}$
+        text_color:
+          type: string
+          pattern: ^#[0-9a-fA-F]{6}$
+        accent_color:
+          type: string
+          pattern: ^#[0-9a-fA-F]{6}$
+        font_family:
+          type: string
+          enum:
+          - system
+          - serif
+          - Georgia
+          - Arial
+          - Inter
+          - Source Serif 4
+        font_size:
+          type: number
+          minimum: 10
+          maximum: 48
+        font_weight:
+          type: integer
+          enum:
+          - 400
+          - 500
+          - 600
+        line_height:
+          type: number
+          minimum: 1
+          maximum: 3
+        letter_spacing:
+          type: number
+          minimum: -2
+          maximum: 10
+        content_width:
+          type: integer
+          minimum: 320
+          maximum: 1400
+        page_margin:
+          type: integer
+          minimum: 0
+          maximum: 200
+        text_align:
+          type: string
+          enum:
+          - left
+          - justify
+        reading_mode:
+          type: string
+          enum:
+          - scroll
+          - paged
+        show_progress:
+          type: boolean
+        show_remaining_time:
+          type: boolean
+        controls_brightness:
+          type: number
+          minimum: 0
+          maximum: 1
+        updated_at:
+          type: string
+          format: date-time
+          description: Accepted for round-trip clients but overwritten by server time.
+      required:
+      - theme
+      - background_color
+      - text_color
+      - accent_color
+      - font_family
+      - font_size
+      - font_weight
+      - line_height
+      - letter_spacing
+      - content_width
+      - page_margin
+      - text_align
+      - reading_mode
+      - show_progress
+      - show_remaining_time
+      - controls_brightness
+      additionalProperties: false
+    ReaderPreferences:
+      type: object
+      properties:
+        theme:
+          type: string
+          enum:
+          - light
+          - warm
+          - sepia
+          - dark
+          - custom
+        background_color:
+          type: string
+          pattern: ^#[0-9a-fA-F]{6}$
+        text_color:
+          type: string
+          pattern: ^#[0-9a-fA-F]{6}$
+        accent_color:
+          type: string
+          pattern: ^#[0-9a-fA-F]{6}$
+        font_family:
+          type: string
+          enum:
+          - system
+          - serif
+          - Georgia
+          - Arial
+          - Inter
+          - Source Serif 4
+        font_size:
+          type: number
+          minimum: 10
+          maximum: 48
+        font_weight:
+          type: integer
+          enum:
+          - 400
+          - 500
+          - 600
+        line_height:
+          type: number
+          minimum: 1
+          maximum: 3
+        letter_spacing:
+          type: number
+          minimum: -2
+          maximum: 10
+        content_width:
+          type: integer
+          minimum: 320
+          maximum: 1400
+        page_margin:
+          type: integer
+          minimum: 0
+          maximum: 200
+        text_align:
+          type: string
+          enum:
+          - left
+          - justify
+        reading_mode:
+          type: string
+          enum:
+          - scroll
+          - paged
+        show_progress:
+          type: boolean
+        show_remaining_time:
+          type: boolean
+        controls_brightness:
+          type: number
+          minimum: 0
+          maximum: 1
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - theme
+      - background_color
+      - text_color
+      - accent_color
+      - font_family
+      - font_size
+      - font_weight
+      - line_height
+      - letter_spacing
+      - content_width
+      - page_margin
+      - text_align
+      - reading_mode
+      - show_progress
+      - show_remaining_time
+      - controls_brightness
+      - updated_at
+    ReadingSessionStatus:
+      type: string
+      enum:
+      - active
+      - idle
+      - finished
+      - stale
+      - finalized
+    ReadingCloseReason:
+      type: string
+      enum:
+      - user_closed_reader
+      - switched_book
+      - app_backgrounded
+      - logout
+      - idle_timeout
+      - connection_lost
+      - stale_session_finalized
+      - book_finished
+      - server_shutdown
+      - unknown
+    ReadingSessionStart:
+      type: object
+      properties:
+        book_id:
+          type: string
+          format: uuid
+        chapter_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        device_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        client_id:
+          type: string
+          maxLength: 200
+        client_timestamp:
+          type: string
+          format: date-time
+        locator:
+          $ref: '#/components/schemas/Locator'
+        start_locator:
+          $ref: '#/components/schemas/Locator'
+        progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        start_progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+      required:
+      - book_id
+      additionalProperties: false
+    ReadingSession:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        book_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        started_at:
+          type: string
+          format: date-time
+        last_activity_at:
+          type: string
+          format: date-time
+        last_heartbeat_at:
+          type: string
+          format: date-time
+        ended_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        active_seconds:
+          type: integer
+          minimum: 0
+        idle_seconds:
+          type: integer
+          minimum: 0
+        start_progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        end_progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        words_read_estimate:
+          type: integer
+          minimum: 0
+        pages_read_estimate:
+          type: number
+          minimum: 0
+        close_reason:
+          $ref: '#/components/schemas/ReadingCloseReason'
+        status:
+          $ref: '#/components/schemas/ReadingSessionStatus'
+      required:
+      - id
+      - book_id
+      - started_at
+      - last_activity_at
+      - last_heartbeat_at
+      - ended_at
+      - active_seconds
+      - idle_seconds
+      - start_progress_percent
+      - end_progress_percent
+      - words_read_estimate
+      - pages_read_estimate
+      - status
+    ReadingHeartbeat:
+      description: Send idempotency_key either in this body or the Idempotency-Key header; send a positive sequence_number
+        (or legacy alias sequence).
+      allOf:
+      - type: object
+        properties:
+          locator:
+            $ref: '#/components/schemas/Locator'
+          progress_percent:
+            type: number
+            minimum: 0
+            maximum: 100
+          tab_visible:
+            type: boolean
+          visible:
+            type: boolean
+          window_focused:
+            type: boolean
+          focused:
+            type: boolean
+          user_active:
+            type: boolean
+          milliseconds_since_interaction:
+            type: integer
+            minimum: 0
+          last_interaction_ms:
+            type: integer
+            minimum: 0
+          client_timestamp:
+            type: string
+            format: date-time
+          idempotency_key:
+            type: string
+            minLength: 8
+            maxLength: 200
+          sequence_number:
+            type: integer
+            minimum: 1
+          sequence:
+            type: integer
+            minimum: 1
+          characters_read:
+            type: integer
+            minimum: 0
+        additionalProperties: false
+      - anyOf:
+        - properties:
+            sequence_number:
+              type: integer
+              minimum: 1
+          additionalProperties: true
+          required:
+          - sequence_number
+        - properties:
+            sequence:
+              type: integer
+              minimum: 1
+          additionalProperties: true
+          required:
+          - sequence
+    ReadingSessionFinish:
+      type: object
+      properties:
+        locator:
+          $ref: '#/components/schemas/Locator'
+        progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        close_reason:
+          $ref: '#/components/schemas/ReadingCloseReason'
+        reason:
+          $ref: '#/components/schemas/ReadingCloseReason'
+        idempotency_key:
+          type: string
+          maxLength: 200
+        sequence:
+          type: integer
+          minimum: 0
+        sequence_number:
+          type: integer
+          minimum: 0
+        client_timestamp:
+          type: string
+          format: date-time
+      additionalProperties: false
+    ReadingSessionList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReadingSession'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+        has_more:
+          type: boolean
+      required:
+      - items
+      - next_cursor
+      - has_more
+    TranslationRequest:
+      type: object
+      properties:
+        source_language:
+          type: string
+          maxLength: 32
+        target_language:
+          type: string
+          maxLength: 32
+        text:
+          type: string
+          minLength: 1
+        context:
+          type: string
+        surrounding_context:
+          type: string
+        book_id:
+          type: string
+        chapter_id:
+          type: string
+        locator:
+          $ref: '#/components/schemas/Locator'
+      required:
+      - text
+      additionalProperties: false
+    WordTranslation:
+      type: object
+      properties:
+        original_text:
+          type: string
+        normalized_form:
+          type: string
+        lemma:
+          type: string
+        translation:
+          type: string
+        transcription:
+          type: string
+        part_of_speech:
+          type: string
+        definition:
+          type: string
+        alternatives:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+        example:
+          type: string
+        source_language:
+          type: string
+        target_language:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        cached:
+          type: boolean
+      required:
+      - original_text
+      - normalized_form
+      - lemma
+      - translation
+      - transcription
+      - part_of_speech
+      - definition
+      - alternatives
+      - example
+      - source_language
+      - target_language
+      - confidence
+      - cached
+    TextTranslation:
+      type: object
+      properties:
+        original_text:
+          type: string
+        translation:
+          type: string
+        detected_language:
+          type: string
+        explanation:
+          type: string
+        cached:
+          type: boolean
+      required:
+      - original_text
+      - translation
+      - detected_language
+      - explanation
+      - cached
+    LanguageDetectionRequest:
+      type: object
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+      required:
+      - text
+      additionalProperties: false
+    LanguageDetection:
+      type: object
+      properties:
+        language:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+      required:
+      - language
+      - confidence
+    DictionaryStatus:
+      type: string
+      enum:
+      - unknown
+      - learning
+      - known
+      - mastered
+      - ignored
+    DictionaryEntry:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_language:
+          type: string
+        target_language:
+          type: string
+        original_word:
+          type: string
+        normalized_word:
+          type: string
+        lemma:
+          type: string
+        transcription:
+          type: string
+        part_of_speech:
+          type: string
+        translation:
+          type: string
+        alternative_translations:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+        definition:
+          type: string
+        note:
+          type: string
+        status:
+          $ref: '#/components/schemas/DictionaryStatus'
+        encounter_count:
+          type: integer
+          minimum: 0
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        next_review_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+      required:
+      - id
+      - source_language
+      - target_language
+      - original_word
+      - normalized_word
+      - lemma
+      - transcription
+      - part_of_speech
+      - translation
+      - alternative_translations
+      - definition
+      - note
+      - status
+      - encounter_count
+      - first_seen_at
+      - last_seen_at
+      - created_at
+      - updated_at
+    DictionaryEntryCreate:
+      type: object
+      properties:
+        source_language:
+          type: string
+          minLength: 1
+          maxLength: 32
+        target_language:
+          type: string
+          minLength: 1
+          maxLength: 32
+        original_word:
+          type: string
+          minLength: 1
+          maxLength: 200
+        normalized_word:
+          type: string
+          maxLength: 200
+        lemma:
+          type: string
+        transcription:
+          type: string
+        part_of_speech:
+          type: string
+        translation:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        alternative_translations:
+          type: array
+          items:
+            type: string
+        definition:
+          type: string
+        note:
+          type: string
+        status:
+          $ref: '#/components/schemas/DictionaryStatus'
+        occurrence:
+          $ref: '#/components/schemas/WordOccurrenceCreate'
+      required:
+      - source_language
+      - target_language
+      - original_word
+      - translation
+      additionalProperties: false
+    DictionaryEntryUpdate:
+      type: object
+      properties:
+        translation:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        transcription:
+          type: string
+          maxLength: 500
+        part_of_speech:
+          type: string
+          maxLength: 100
+        definition:
+          type: string
+          maxLength: 5000
+        note:
+          type: string
+          maxLength: 10000
+        status:
+          $ref: '#/components/schemas/DictionaryStatus'
+        next_review_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    DictionaryEntryList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DictionaryEntry'
+        total_count:
+          type: integer
+          minimum: 0
+        next_cursor:
+          type:
+          - string
+          - 'null'
+        has_more:
+          type: boolean
+      required:
+      - items
+      - total_count
+      - next_cursor
+      - has_more
+    WordOccurrenceCreate:
+      type: object
+      properties:
+        book_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        chapter_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        locator:
+          $ref: '#/components/schemas/Locator'
+        sentence:
+          type: string
+          maxLength: 2000
+        context_before:
+          type: string
+          maxLength: 2000
+        context_after:
+          type: string
+          maxLength: 2000
+        encountered_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    WordOccurrence:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        dictionary_entry_id:
+          type: string
+          format: uuid
+        book_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        chapter_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        locator:
+          $ref: '#/components/schemas/Locator'
+        sentence:
+          type: string
+        context_before:
+          type: string
+        context_after:
+          type: string
+        encountered_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - dictionary_entry_id
+      - locator
+      - sentence
+      - context_before
+      - context_after
+      - encountered_at
+      - created_at
+    WordOccurrenceList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WordOccurrence'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+        has_more:
+          type: boolean
+      required:
+      - items
+      - next_cursor
+      - has_more
+    BookmarkCreate:
+      type: object
+      properties:
+        chapter_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        locator:
+          $ref: '#/components/schemas/Locator'
+        progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        title:
+          type: string
+          maxLength: 500
+        note:
+          type: string
+          maxLength: 5000
+      additionalProperties: false
+    BookmarkUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 500
+        note:
+          type: string
+          maxLength: 5000
+      additionalProperties: false
+    Bookmark:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        book_id:
+          type: string
+          format: uuid
+        chapter_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        locator:
+          type: string
+        progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        title:
+          type: string
+        note:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - book_id
+      - chapter_id
+      - locator
+      - progress_percent
+      - title
+      - note
+      - created_at
+    BookmarkList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bookmark'
+        total_count:
+          type: integer
+          minimum: 0
+        next_cursor:
+          type:
+          - string
+          - 'null'
+        has_more:
+          type: boolean
+      required:
+      - items
+      - total_count
+      - next_cursor
+      - has_more
+    HighlightColor:
+      type: string
+      enum:
+      - sand
+      - sage
+      - blue
+      - rose
+      - yellow
+      - green
+      - pink
+      - purple
+      - gray
+    HighlightCreate:
+      type: object
+      properties:
+        chapter_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        locator:
+          $ref: '#/components/schemas/Locator'
+        text_anchor:
+          type: string
+          maxLength: 512
+        selected_text:
+          type: string
+          minLength: 1
+          maxLength: 20000
+        context:
+          type: string
+          maxLength: 5000
+        color:
+          $ref: '#/components/schemas/HighlightColor'
+        note:
+          type: string
+          maxLength: 5000
+      required:
+      - selected_text
+      additionalProperties: false
+    HighlightUpdate:
+      type: object
+      properties:
+        color:
+          $ref: '#/components/schemas/HighlightColor'
+        note:
+          type: string
+          maxLength: 5000
+      additionalProperties: false
+    Highlight:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        book_id:
+          type: string
+          format: uuid
+        chapter_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        locator:
+          type: string
+        text_anchor:
+          type: string
+        selected_text:
+          type: string
+        context:
+          type: string
+        color:
+          $ref: '#/components/schemas/HighlightColor'
+        note:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - book_id
+      - chapter_id
+      - locator
+      - text_anchor
+      - selected_text
+      - context
+      - color
+      - note
+      - created_at
+      - updated_at
+    HighlightList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Highlight'
+        total_count:
+          type: integer
+          minimum: 0
+        next_cursor:
+          type:
+          - string
+          - 'null'
+        has_more:
+          type: boolean
+      required:
+      - items
+      - total_count
+      - next_cursor
+      - has_more
+    NoteCreate:
+      type: object
+      properties:
+        book_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        highlight_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        title:
+          type: string
+          maxLength: 500
+        schema_version:
+          type: integer
+          enum:
+          - 1
+          default: 1
+        blocks:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          maxItems: 1000
+      additionalProperties: false
+    NoteUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 500
+        blocks:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          maxItems: 1000
+        schema_version:
+          type: integer
+          enum:
+          - 1
+      additionalProperties: false
+    Note:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        book_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        highlight_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        title:
+          type: string
+        schema_version:
+          type: integer
+        blocks:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+      required:
+      - id
+      - title
+      - schema_version
+      - blocks
+      - created_at
+      - updated_at
+    NoteList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Note'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+        has_more:
+          type: boolean
+      required:
+      - items
+      - next_cursor
+      - has_more
+    StatisticsOverview:
+      type: object
+      properties:
+        total_reading_seconds:
+          type: integer
+          minimum: 0
+        active_reading_seconds:
+          type: integer
+          minimum: 0
+        idle_seconds:
+          type: integer
+          minimum: 0
+        sessions_count:
+          type: integer
+          minimum: 0
+        books_started:
+          type: integer
+          minimum: 0
+        books_completed:
+          type: integer
+          minimum: 0
+        words_read_estimate:
+          type: integer
+          minimum: 0
+        pages_read_estimate:
+          type: number
+          minimum: 0
+        current_streak_days:
+          type: integer
+          minimum: 0
+        longest_streak_days:
+          type: integer
+          minimum: 0
+        average_session_seconds:
+          type: number
+          minimum: 0
+        median_session_seconds:
+          type: number
+          minimum: 0
+        average_words_per_minute:
+          type: number
+          minimum: 0
+        dictionary_words:
+          type: integer
+          minimum: 0
+        learned_words:
+          type: integer
+          minimum: 0
+        translations_count:
+          type: integer
+          minimum: 0
+      required:
+      - total_reading_seconds
+      - active_reading_seconds
+      - idle_seconds
+      - sessions_count
+      - books_started
+      - books_completed
+      - words_read_estimate
+      - pages_read_estimate
+      - current_streak_days
+      - longest_streak_days
+      - average_session_seconds
+      - median_session_seconds
+      - average_words_per_minute
+      - dictionary_words
+      - learned_words
+      - translations_count
+    TimeSeriesPoint:
+      type: object
+      properties:
+        period:
+          type: string
+          format: date-time
+        active_seconds:
+          type: integer
+          minimum: 0
+        idle_seconds:
+          type: integer
+          minimum: 0
+        session_count:
+          type: integer
+          minimum: 0
+        words_read:
+          type: integer
+          minimum: 0
+      required:
+      - period
+      - active_seconds
+      - idle_seconds
+      - session_count
+      - words_read
+    TimeSeriesStatistics:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimeSeriesPoint'
+        timezone:
+          type: string
+        grouping:
+          type: string
+          enum:
+          - week
+          - month
+      required:
+      - items
+      - timezone
+      - grouping
+    BookStatistics:
+      type: object
+      properties:
+        book_id:
+          type: string
+          format: uuid
+        book_title:
+          type: string
+        active_seconds:
+          type: integer
+          minimum: 0
+        sessions_count:
+          type: integer
+          minimum: 0
+        progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        average_words_per_minute:
+          type: number
+          minimum: 0
+        last_read_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+      required:
+      - book_id
+      - book_title
+      - active_seconds
+      - sessions_count
+      - progress_percent
+      - average_words_per_minute
+      - last_read_at
+    StreakStatistics:
+      type: object
+      properties:
+        current:
+          type: integer
+          minimum: 0
+        longest:
+          type: integer
+          minimum: 0
+        dates:
+          type: array
+          items:
+            type: string
+            format: date
+      required:
+      - current
+      - longest
+      - dates
+    DictionaryStatistics:
+      type: object
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        unknown:
+          type: integer
+          minimum: 0
+        learning:
+          type: integer
+          minimum: 0
+        known:
+          type: integer
+          minimum: 0
+        mastered:
+          type: integer
+          minimum: 0
+        ignored:
+          type: integer
+          minimum: 0
+        encounters:
+          type: integer
+          minimum: 0
+      required:
+      - total
+      - unknown
+      - learning
+      - known
+      - mastered
+      - ignored
+      - encounters
+    DeviceList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Device'
+      required:
+      - items
+    DictionaryExport:
+      type: object
+      properties:
+        schema_version:
+          type: integer
+          const: 1
+        exported_entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/DictionaryEntry'
+      required:
+      - schema_version
+      - exported_entries
+    DailyStatistics:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        active_seconds:
+          type: integer
+          minimum: 0
+        idle_seconds:
+          type: integer
+          minimum: 0
+        sessions_count:
+          type: integer
+          minimum: 0
+        words_read_estimate:
+          type: integer
+          minimum: 0
+      required:
+      - date
+      - active_seconds
+      - idle_seconds
+      - sessions_count
+      - words_read_estimate
+  parameters:
+    RequestId:
+      name: X-Request-ID
+      in: header
+      required: false
+      description: Caller-supplied UUID; the server validates or replaces it.
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Optional opaque key for replay-safe heartbeats/finishes; a body idempotency_key is also accepted.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 200
+      example: 0196d44a-heartbeat-000042
+    IfMatch:
+      name: If-Match
+      in: header
+      required: false
+      description: Optional weak ETag carrying the current revision, for example W/"8". When valid it overrides body revision.
+      schema:
+        type: string
+      example: W/"8"
+    BookId:
+      name: bookId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ChapterId:
+      name: chapterId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EntryId:
+      name: entryId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    BookmarkId:
+      name: bookmarkId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    HighlightId:
+      name: highlightId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    NoteId:
+      name: noteId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Decimal offset cursor returned by this implementation; clients should still treat it as opaque.
+      schema:
+        type: string
+        pattern: ^[0-9]+$
+        maxLength: 20
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    Search:
+      name: search
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 200
+    DateFrom:
+      name: from
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+    DateTo:
+      name: to
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+    Timezone:
+      name: timezone
+      in: query
+      required: false
+      description: IANA timezone name; defaults to UTC.
+      schema:
+        type: string
+        default: UTC
+      example: Asia/Yekaterinburg
+    BookIdQuery:
+      name: book_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AssetId:
+      name: assetId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: false
+      description: Required for unsafe requests authenticated by cookie; omit for bearer or explicit refresh-token requests.
+        Must equal the signed readable CSRF cookie.
+      schema:
+        type: string
+        minLength: 32
+  headers:
+    RequestId:
+      description: Request identifier used in logs and traces.
+      schema:
+        type: string
+        format: uuid
+      example: 0196d44a-0ee0-7530-9b4a-f4bea9e8e590
+    RetryAfter:
+      description: Seconds until a retry is allowed.
+      schema:
+        type: integer
+        minimum: 1
+      example: 30
+    CsrfToken:
+      description: Signed double-submit token. Echo this value as X-CSRF-Token for unsafe cookie-authenticated requests.
+      schema:
+        type: string
+    SetCookie:
+      description: HttpOnly access/refresh cookies plus the readable signed CSRF cookie. Multiple Set-Cookie header fields
+        are emitted.
+      schema:
+        type: string
+    BookDuplicate:
+      description: true when the upload matched an existing user-owned SHA-256; false for a newly queued book.
+      schema:
+        type: boolean
+    RevisionETag:
+      description: Weak ETag containing the reading-progress revision.
+      schema:
+        type: string
+        pattern: ^W/"[0-9]+"$
+      example: W/"8"
+    PrivateCache:
+      description: Private chapter cache policy.
+      schema:
+        type: string
+      example: private, max-age=300
+  responses:
+    ValidationError:
+      description: Request validation failed
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Request validation failed
+              details: {}
+              request_id: 0196d44a-0ee0-7530-9b4a-f4bea9e8e590
+    Unauthorized:
+      description: Authentication is required or no longer valid
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: UNAUTHENTICATED
+              message: Authentication is required or no longer valid
+              details: {}
+              request_id: 0196d44a-0ee0-7530-9b4a-f4bea9e8e590
+    Forbidden:
+      description: The authenticated user does not own this resource
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: FORBIDDEN
+              message: The authenticated user does not own this resource
+              details: {}
+              request_id: 0196d44a-0ee0-7530-9b4a-f4bea9e8e590
+    NotFound:
+      description: Resource was not found
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: NOT_FOUND
+              message: Resource was not found
+              details: {}
+              request_id: 0196d44a-0ee0-7530-9b4a-f4bea9e8e590
+    Conflict:
+      description: The mutation conflicts with current state
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: CONFLICT
+              message: The mutation conflicts with current state
+              details: {}
+              request_id: 0196d44a-0ee0-7530-9b4a-f4bea9e8e590
+    ProgressConflict:
+      description: A newer reading position exists; details include current state
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: PROGRESS_CONFLICT
+              message: A newer reading position exists; details include current state
+              details: {}
+              request_id: 0196d44a-0ee0-7530-9b4a-f4bea9e8e590
+    SequenceConflict:
+      description: Heartbeat sequence is stale or has a gap outside the accepted policy
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: SEQUENCE_CONFLICT
+              message: Heartbeat sequence is stale or has a gap outside the accepted policy
+              details: {}
+              request_id: 0196d44a-0ee0-7530-9b4a-f4bea9e8e590
+    PayloadTooLarge:
+      description: Request or selected text exceeds the configured limit
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: PAYLOAD_TOO_LARGE
+              message: Request or selected text exceeds the configured limit
+              details: {}
+              request_id: 0196d44a-0ee0-7530-9b4a-f4bea9e8e590
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: RATE_LIMITED
+              message: Rate limit exceeded
+              details: {}
+              request_id: 0196d44a-0ee0-7530-9b4a-f4bea9e8e590
+    Unavailable:
+      description: A required dependency is unavailable
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: DEPENDENCY_UNAVAILABLE
+              message: A required dependency is unavailable
+              details: {}
+              request_id: 0196d44a-0ee0-7530-9b4a-f4bea9e8e590
+    InternalError:
+      description: An internal error occurred
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: INTERNAL_ERROR
+              message: An internal error occurred
+              details: {}
+              request_id: 0196d44a-0ee0-7530-9b4a-f4bea9e8e590
+    TranslationFailure:
+      description: Translation provider or cache operation failed
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: TRANSLATION_FAILED
+              message: Translation failed
+              details: null
+              request_id: 0196d44a-0ee0-7530-9b4a-f4bea9e8e590
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: bookflow_session
+      description: HttpOnly, Secure in production, SameSite browser session cookie.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived access token for non-browser/trusted API clients.

@@ -1,0 +1,40 @@
+# Environment and local overrides
+.env
+.env.*
+!.env.example
+docker-compose.override.yml
+
+# Go
+backend/bin/
+backend/coverage.out
+backend/coverage.html
+backend/*.test
+
+# JavaScript / Vite / Playwright
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+frontend/output/
+frontend/.vite/
+frontend/.eslintcache
+.playwright-cli/
+
+# Editors / operating systems
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Runtime data, exports and local certificates
+tmp/
+var/
+deploy/data/
+deploy/certs/*.key
+deploy/certs/*.pem
+*.log
+
+# Generated files
+backend/openapi/openapi.json
