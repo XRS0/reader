@@ -25,10 +25,17 @@ import (
 )
 
 var (
-	ErrNotFound    = errors.New("book not found")
-	ErrForbidden   = errors.New("book access denied")
-	ErrInvalidFile = errors.New("invalid book file")
-	ErrTooLarge    = errors.New("book file is too large")
+	ErrNotFound      = errors.New("book not found")
+	ErrForbidden     = errors.New("book access denied")
+	ErrInvalidFile   = errors.New("invalid book file")
+	ErrTooLarge      = errors.New("book file is too large")
+	ErrInvalidCover  = errors.New("invalid book cover")
+	ErrCoverTooLarge = errors.New("book cover is too large")
+)
+
+const (
+	MaxCoverBytes       int64 = 5 * 1024 * 1024
+	maxStoredCoverBytes int64 = 20 * 1024 * 1024
 )
 
 type Service struct {
@@ -46,6 +53,11 @@ type UploadInput struct {
 type UploadResult struct {
 	Book      model.Book `json:"book"`
 	Duplicate bool       `json:"duplicate"`
+}
+
+type CoverInput struct {
+	ClientMIME string
+	Data       []byte
 }
 type ListFilter struct {
 	Search   string
@@ -174,6 +186,30 @@ func safeFilename(raw string) string {
 		name = name[len(name)-240:]
 	}
 	return name
+}
+
+func validateCover(in CoverInput) (mediaType, extension string, err error) {
+	if len(in.Data) == 0 {
+		return "", "", fmt.Errorf("%w: empty image", ErrInvalidCover)
+	}
+	if int64(len(in.Data)) > MaxCoverBytes {
+		return "", "", ErrCoverTooLarge
+	}
+	detected := strings.ToLower(strings.TrimSpace(strings.Split(http.DetectContentType(in.Data), ";")[0]))
+	extensions := map[string]string{
+		"image/jpeg": ".jpg",
+		"image/png":  ".png",
+		"image/webp": ".webp",
+	}
+	extension, ok := extensions[detected]
+	if !ok {
+		return "", "", fmt.Errorf("%w: only JPEG, PNG and WebP are supported", ErrInvalidCover)
+	}
+	clientMIME := strings.ToLower(strings.TrimSpace(strings.Split(in.ClientMIME, ";")[0]))
+	if clientMIME != "" && clientMIME != "application/octet-stream" && clientMIME != detected {
+		return "", "", fmt.Errorf("%w: declared MIME does not match image content", ErrInvalidCover)
+	}
+	return detected, extension, nil
 }
 
 func normalizeTags(tags []string) ([]string, error) {
@@ -385,6 +421,72 @@ func (s *Service) Update(ctx context.Context, userID, bookID uuid.UUID, title, a
 	// state.
 	return s.Get(ctx, userID, bookID)
 }
+
+func (s *Service) UpdateCover(ctx context.Context, userID, bookID uuid.UUID, in CoverInput) (model.Book, error) {
+	b, err := s.Get(ctx, userID, bookID)
+	if err != nil {
+		return b, err
+	}
+	mediaType, extension, err := validateCover(in)
+	if err != nil {
+		return b, err
+	}
+	sum := sha256.Sum256(in.Data)
+	key := fmt.Sprintf("users/%s/books/%s/custom-cover/%s%s", userID, bookID, uuid.New(), extension)
+	if err := s.store.Put(ctx, s.cfg.S3.CoversBucket, key, bytes.NewReader(in.Data), int64(len(in.Data)), mediaType, map[string]string{
+		"book-id": bookID.String(),
+		"sha256":  hex.EncodeToString(sum[:]),
+		"source":  "user",
+	}); err != nil {
+		return b, fmt.Errorf("store custom cover: %w", err)
+	}
+	oldBucket, oldKey := b.CustomCoverBucket, b.CustomCoverKey
+	now := s.now().UTC()
+	result, err := s.db.NewUpdate().Model((*model.Book)(nil)).
+		Set("custom_cover_bucket=?", s.cfg.S3.CoversBucket).
+		Set("custom_cover_key=?", key).
+		Set("updated_at=?", now).
+		Where("id=? AND user_id=? AND deleted_at IS NULL", bookID, userID).
+		Exec(ctx)
+	if err != nil {
+		_ = s.store.Delete(context.WithoutCancel(ctx), s.cfg.S3.CoversBucket, key)
+		return b, err
+	}
+	rows, _ := result.RowsAffected()
+	if rows != 1 {
+		_ = s.store.Delete(context.WithoutCancel(ctx), s.cfg.S3.CoversBucket, key)
+		return b, ErrNotFound
+	}
+	if oldBucket != "" && oldKey != "" {
+		_ = s.store.Delete(context.WithoutCancel(ctx), oldBucket, oldKey)
+	}
+	return s.Get(ctx, userID, bookID)
+}
+
+func (s *Service) DeleteCover(ctx context.Context, userID, bookID uuid.UUID) (model.Book, error) {
+	b, err := s.Get(ctx, userID, bookID)
+	if err != nil {
+		return b, err
+	}
+	if b.CustomCoverBucket == "" || b.CustomCoverKey == "" {
+		return b, nil
+	}
+	result, err := s.db.NewUpdate().Model((*model.Book)(nil)).
+		Set("custom_cover_bucket=''").
+		Set("custom_cover_key=''").
+		Set("updated_at=?", s.now().UTC()).
+		Where("id=? AND user_id=? AND deleted_at IS NULL", bookID, userID).
+		Exec(ctx)
+	if err != nil {
+		return b, err
+	}
+	rows, _ := result.RowsAffected()
+	if rows != 1 {
+		return b, ErrNotFound
+	}
+	_ = s.store.Delete(context.WithoutCancel(ctx), b.CustomCoverBucket, b.CustomCoverKey)
+	return s.Get(ctx, userID, bookID)
+}
 func (s *Service) Delete(ctx context.Context, userID, bookID uuid.UUID) error {
 	b, err := s.Get(ctx, userID, bookID)
 	if err != nil {
@@ -470,6 +572,34 @@ func (s *Service) DownloadURL(ctx context.Context, userID, bookID uuid.UUID) (st
 		return "", err
 	}
 	return s.store.PresignGet(ctx, b.OriginalBucket, b.OriginalKey, s.cfg.S3.PresignTTL)
+}
+
+func (s *Service) Cover(ctx context.Context, userID, bookID uuid.UUID) ([]byte, string, error) {
+	b, err := s.Get(ctx, userID, bookID)
+	if err != nil {
+		return nil, "", err
+	}
+	bucket, key := b.CustomCoverBucket, b.CustomCoverKey
+	if bucket == "" || key == "" {
+		bucket, key = b.CoverBucket, b.CoverKey
+	}
+	if bucket == "" || key == "" {
+		return nil, "", ErrNotFound
+	}
+	data, err := s.store.Get(ctx, bucket, key, maxStoredCoverBytes)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, "", ErrNotFound
+		}
+		return nil, "", err
+	}
+	mediaType := strings.ToLower(strings.TrimSpace(strings.Split(http.DetectContentType(data), ";")[0]))
+	switch mediaType {
+	case "image/jpeg", "image/png", "image/webp", "image/gif":
+	default:
+		mediaType = "application/octet-stream"
+	}
+	return data, mediaType, nil
 }
 func (s *Service) AssetURL(ctx context.Context, userID, bookID, assetID uuid.UUID) (string, error) {
 	b, err := s.Get(ctx, userID, bookID)

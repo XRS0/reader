@@ -128,7 +128,12 @@ export const ru = {
     noHighlights: 'Выделений пока нет',
     processingTitle: 'Книга готовится',
     processingBody: 'Содержание появится после завершения фоновой обработки.',
-    failedTitle: 'Не удалось обработать книгу'
+    failedTitle: 'Не удалось обработать книгу',
+    coverUpload: 'Добавить обложку',
+    coverReplace: 'Заменить обложку',
+    coverRemove: 'Удалить свою обложку',
+    coverUploadHint: 'JPEG, PNG или WebP, не более 5 МБ.',
+    coverUploadError: 'Не удалось обновить обложку. Проверьте формат и размер файла.'
   },
   reader: {
     contents: 'Содержание',
@@ -243,7 +248,12 @@ export const ru = {
       stale: 'Истекла',
       finalized: 'Финализирована'
     },
-    noActivity: 'В этот период чтения не было'
+    noActivity: 'В этот период чтения не было',
+    currentWeek: 'Текущая неделя',
+    selectedWeek: 'Неделя',
+    weekNavigation: 'Переключение недель',
+    previousWeek: 'Предыдущая неделя',
+    nextWeek: 'Следующая неделя'
   },
   notes: {
     title: 'Заметки',

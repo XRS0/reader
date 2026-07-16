@@ -118,3 +118,42 @@ test('desktop sidebar has one active destination and a usable collapsed rail', a
   await sidebar.getByRole('button', { name: /Развернуть|Expand/ }).press('Enter')
   await expect(sidebar.getByRole('button', { name: /Свернуть|Collapse/ })).toBeVisible()
 })
+
+test('statistics overview shows a complete week and navigates between weeks', async ({ page }) => {
+  await page.goto('/statistics')
+  await expect(page.getByRole('heading', { name: /Статистика|Statistics/ })).toBeVisible()
+
+  const navigator = page.getByRole('group', { name: /Переключение недель|Week navigation/ })
+  await expect(navigator).toBeVisible()
+  await expect(navigator.getByText(/Текущая неделя|Current week/)).toBeVisible()
+  const currentRange = await navigator.locator('span').textContent()
+
+  const chart = page.getByRole('img', { name: 'Reading activity' })
+  await expect(chart.locator(':scope > div')).toHaveCount(7)
+
+  await navigator.getByRole('button', { name: /Предыдущая неделя|Previous week/ }).click()
+  await expect(navigator.getByText(/Текущая неделя|Current week/)).toHaveCount(0)
+  await expect.poll(() => navigator.locator('span').textContent()).not.toBe(currentRange)
+  await expect(navigator.getByRole('button', { name: /Следующая неделя|Next week/ })).toBeEnabled()
+
+  await navigator.getByRole('button', { name: /Следующая неделя|Next week/ }).click()
+  await expect(navigator.getByText(/Текущая неделя|Current week/)).toBeVisible()
+  await expect(navigator.getByRole('button', { name: /Следующая неделя|Next week/ })).toBeDisabled()
+})
+
+test('book details allow adding, replacing and removing a custom cover', async ({ page }) => {
+  await page.goto('/books/019f670d-13bd-7bc3-94fb-000000000001')
+  const fileInput = page.getByLabel(/Добавить обложку|Add cover/)
+  await fileInput.setInputFiles({
+    name: 'cover.png',
+    mimeType: 'image/png',
+    buffer: Buffer.concat([Buffer.from('\x89PNG\r\n\x1a\n', 'binary'), Buffer.alloc(520)])
+  })
+  await expect(page.getByRole('button', { name: /Заменить обложку|Replace cover/ })).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: /Удалить свою обложку|Remove custom cover/ })
+  ).toBeVisible()
+
+  await page.getByRole('button', { name: /Удалить свою обложку|Remove custom cover/ }).click()
+  await expect(page.getByRole('button', { name: /Добавить обложку|Add cover/ })).toBeVisible()
+})

@@ -94,6 +94,58 @@ func TestBookProcessorPersistsJSONMetadataAndChapters(t *testing.T) {
 	require.Equal(t, 3, count)
 }
 
+func TestCustomBookCoverReplacesAndRestoresEmbeddedCover(t *testing.T) {
+	resetDatabase(t)
+	user := createUser(t, "UTC")
+	book := createBook(t, user.ID, "Cover lifecycle")
+	store := storage.NewMemoryStore()
+	embedded := []byte("embedded cover")
+	embeddedBucket, embeddedKey := "books-covers", "embedded/cover.jpg"
+	require.NoError(t, store.Put(testContext(t), embeddedBucket, embeddedKey, bytes.NewReader(embedded), int64(len(embedded)), "image/jpeg", nil))
+	_, err := integrationDB.NewUpdate().Model((*model.Book)(nil)).
+		Set("cover_bucket=?", embeddedBucket).
+		Set("cover_key=?", embeddedKey).
+		Where("id=?", book.ID).
+		Exec(testContext(t))
+	require.NoError(t, err)
+
+	service := books.NewService(integrationDB, store, nil, config.Config{S3: config.S3{
+		CoversBucket: "books-covers",
+		PresignTTL:   time.Minute,
+	}})
+	png := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0}, 520)...)
+	updated, err := service.UpdateCover(testContext(t), user.ID, book.ID, books.CoverInput{
+		ClientMIME: "image/png",
+		Data:       png,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, updated.CustomCoverKey)
+	firstCustomKey := updated.CustomCoverKey
+	coverData, mediaType, err := service.Cover(testContext(t), user.ID, book.ID)
+	require.NoError(t, err)
+	require.Equal(t, "image/png", mediaType)
+	require.Equal(t, png, coverData)
+
+	jpeg := append([]byte("\xff\xd8\xff\xe0"), bytes.Repeat([]byte{0}, 520)...)
+	updated, err = service.UpdateCover(testContext(t), user.ID, book.ID, books.CoverInput{
+		ClientMIME: "image/jpeg",
+		Data:       jpeg,
+	})
+	require.NoError(t, err)
+	require.NotEqual(t, firstCustomKey, updated.CustomCoverKey)
+	exists, err := store.Exists(testContext(t), "books-covers", firstCustomKey)
+	require.NoError(t, err)
+	require.False(t, exists)
+
+	restored, err := service.DeleteCover(testContext(t), user.ID, book.ID)
+	require.NoError(t, err)
+	require.Empty(t, restored.CustomCoverKey)
+	coverData, mediaType, err = service.Cover(testContext(t), user.ID, book.ID)
+	require.NoError(t, err)
+	require.Equal(t, "application/octet-stream", mediaType)
+	require.Equal(t, embedded, coverData)
+}
+
 func TestBookProcessorReprocessRemapsDurableChapterReferences(t *testing.T) {
 	resetDatabase(t)
 	user := createUser(t, "UTC")

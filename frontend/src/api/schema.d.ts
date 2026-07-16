@@ -209,6 +209,34 @@ export interface paths {
     patch: operations['updateBook']
     trace?: never
   }
+  '/api/v1/books/{bookId}/cover': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Get the effective book cover
+     * @description Streams the user-provided cover when present, otherwise the cover extracted from the book. The authenticated same-origin response remains compatible with the web app's strict image CSP.
+     */
+    get: operations['getBookCover']
+    /**
+     * Upload or replace a custom book cover
+     * @description Accepts JPEG, PNG or WebP up to 5 MiB. A custom cover takes precedence over the image embedded in the book.
+     */
+    put: operations['updateBookCover']
+    post?: never
+    /**
+     * Remove the custom book cover
+     * @description Restores the cover extracted from the book, or the generated text fallback when no embedded cover exists.
+     */
+    delete: operations['deleteBookCover']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/books/{bookId}/reprocess': {
     parameters: {
       query?: never
@@ -1017,6 +1045,13 @@ export interface components {
        */
       file: string
     }
+    BookCoverUploadRequest: {
+      /**
+       * Format: binary
+       * @description JPEG, PNG or WebP image no larger than 5 MiB.
+       */
+      file: string
+    }
     BookSummary: {
       /** Format: uuid */
       id: string
@@ -1041,8 +1076,9 @@ export interface components {
       last_read_at?: string | null
       original_filename: string
       original_size: number
-      /** Format: uri */
+      /** Format: uri-reference */
       cover_url?: string
+      has_custom_cover: boolean
       processing_version: number
     }
     BookDetail: components['schemas']['BookSummary']
@@ -2356,6 +2392,114 @@ export interface operations {
         }
       }
       400: components['responses']['ValidationError']
+      401: components['responses']['Unauthorized']
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
+      500: components['responses']['InternalError']
+    }
+  }
+  getBookCover: {
+    parameters: {
+      query?: never
+      header?: {
+        /** @description Caller-supplied UUID; the server validates or replaces it. */
+        'X-Request-ID'?: components['parameters']['RequestId']
+      }
+      path: {
+        bookId: components['parameters']['BookId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Book cover image */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'image/jpeg': string
+          'image/png': string
+          'image/webp': string
+        }
+      }
+      401: components['responses']['Unauthorized']
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
+      500: components['responses']['InternalError']
+    }
+  }
+  updateBookCover: {
+    parameters: {
+      query?: never
+      header?: {
+        /** @description Caller-supplied UUID; the server validates or replaces it. */
+        'X-Request-ID'?: components['parameters']['RequestId']
+        /** @description Required for unsafe requests authenticated by cookie; omit for bearer or explicit refresh-token requests. Must equal the signed readable CSRF cookie. */
+        'X-CSRF-Token'?: components['parameters']['CsrfToken']
+      }
+      path: {
+        bookId: components['parameters']['BookId']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'multipart/form-data': components['schemas']['BookCoverUploadRequest']
+      }
+    }
+    responses: {
+      /** @description Book with the updated cover */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BookDetail']
+        }
+      }
+      400: components['responses']['ValidationError']
+      401: components['responses']['Unauthorized']
+      403: components['responses']['Forbidden']
+      404: components['responses']['NotFound']
+      /** @description Cover exceeds 5 MiB */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Error']
+        }
+      }
+      422: components['responses']['ValidationError']
+      500: components['responses']['InternalError']
+    }
+  }
+  deleteBookCover: {
+    parameters: {
+      query?: never
+      header?: {
+        /** @description Caller-supplied UUID; the server validates or replaces it. */
+        'X-Request-ID'?: components['parameters']['RequestId']
+        /** @description Required for unsafe requests authenticated by cookie; omit for bearer or explicit refresh-token requests. Must equal the signed readable CSRF cookie. */
+        'X-CSRF-Token'?: components['parameters']['CsrfToken']
+      }
+      path: {
+        bookId: components['parameters']['BookId']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Book using its embedded or generated cover */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BookDetail']
+        }
+      }
       401: components['responses']['Unauthorized']
       403: components['responses']['Forbidden']
       404: components['responses']['NotFound']

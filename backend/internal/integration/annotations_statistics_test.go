@@ -166,6 +166,13 @@ func TestStatisticsAggregatesAreUserScopedAndRecomputable(t *testing.T) {
 	require.Equal(t, int64(1), overview.BooksCompleted)
 	require.Equal(t, int64(2), overview.DictionaryWords)
 	require.Equal(t, int64(1), overview.DictionaryMastered)
+	rangeFrom := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+	rangeTo := time.Date(2025, 2, 2, 12, 0, 0, 0, time.UTC)
+	rangeOverview, err := service.OverviewRange(testContext(t), user.ID, rangeFrom, rangeTo)
+	require.NoError(t, err)
+	require.Equal(t, int64(600), rangeOverview.ActiveSeconds)
+	require.Equal(t, int64(1), rangeOverview.SessionCount)
+	require.Equal(t, int64(1000), rangeOverview.WordsRead)
 
 	bookStats, err := service.Books(testContext(t), user.ID, 50, 0)
 	require.NoError(t, err)
@@ -179,6 +186,15 @@ func TestStatisticsAggregatesAreUserScopedAndRecomputable(t *testing.T) {
 	require.Equal(t, float64(80), byBook[firstBook.ID].ProgressPercent)
 	require.Equal(t, int64(300), byBook[secondBook.ID].ActiveSeconds)
 	require.Equal(t, float64(100), byBook[secondBook.ID].ProgressPercent)
+
+	rangeBookStats, err := service.BooksRange(testContext(t), user.ID, rangeFrom, rangeTo, 50, 0)
+	require.NoError(t, err)
+	rangeByBook := make(map[uuid.UUID]statistics.BookStat, len(rangeBookStats))
+	for _, item := range rangeBookStats {
+		rangeByBook[item.BookID] = item
+	}
+	require.Equal(t, int64(600), rangeByBook[firstBook.ID].ActiveSeconds)
+	require.Zero(t, rangeByBook[secondBook.ID].ActiveSeconds)
 
 	buckets, err := service.Buckets(
 		testContext(t),

@@ -45,6 +45,7 @@ export interface Book {
   processing_status: ProcessingStatus
   processing_error?: string | null
   cover_url?: string | null
+  has_custom_cover?: boolean
   progress_percent: number
   current_chapter_id?: UUID | null
   estimated_minutes_remaining?: number | null

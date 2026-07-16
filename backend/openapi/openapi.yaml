@@ -522,6 +522,106 @@ paths:
           $ref: '#/components/responses/ValidationError'
       description: Marks database state for deletion and queues idempotent object cleanup. Never accepts an object key from
         the client.
+  /api/v1/books/{bookId}/cover:
+    get:
+      operationId: getBookCover
+      summary: Get the effective book cover
+      description: Streams the user-provided cover when present, otherwise the cover extracted from the book. The authenticated same-origin response remains compatible with the web app's strict image CSP.
+      tags:
+      - Books
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      responses:
+        '200':
+          description: Book cover image
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      operationId: updateBookCover
+      summary: Upload or replace a custom book cover
+      description: Accepts JPEG, PNG or WebP up to 5 MiB. A custom cover takes precedence over the image embedded in the book.
+      tags:
+      - Books
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BookCoverUploadRequest'
+      responses:
+        '200':
+          description: Book with the updated cover
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookDetail'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          description: Cover exceeds 5 MiB
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: deleteBookCover
+      summary: Remove the custom book cover
+      description: Restores the cover extracted from the book, or the generated text fallback when no embedded cover exists.
+      tags:
+      - Books
+      parameters:
+      - $ref: '#/components/parameters/RequestId'
+      - $ref: '#/components/parameters/BookId'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Book using its embedded or generated cover
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/v1/books/{bookId}/reprocess:
     post:
       operationId: reprocessBook
@@ -2465,6 +2565,15 @@ components:
           description: EPUB, FB2 or UTF-8 TXT; the server verifies extension, MIME and content.
       required:
       - file
+    BookCoverUploadRequest:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+          description: JPEG, PNG or WebP image no larger than 5 MiB.
+      required:
+      - file
     BookSummary:
       type: object
       properties:
@@ -2525,7 +2634,9 @@ components:
           minimum: 0
         cover_url:
           type: string
-          format: uri
+          format: uri-reference
+        has_custom_cover:
+          type: boolean
         processing_version:
           type: integer
           minimum: 1
@@ -2541,6 +2652,7 @@ components:
       - is_favorite
       - tags
       - progress_percent
+      - has_custom_cover
       - original_filename
       - original_size
       - processing_version

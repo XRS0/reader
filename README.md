@@ -2,16 +2,17 @@
 
 BookFlow — monorepo веб‑сервиса для загрузки и чтения EPUB/FB2/TXT, синхронизации позиции между устройствами, корректного учёта активного времени, перевода выделенного текста, личного словаря, закладок, выделений и заметок.
 
-> **Статус на 2026-07-16:** локальный MVP реализован и проверен на core-контуре. Все 66 операций OpenAPI сопоставлены с Gin routes; backend unit/race/integration tests, frontend static/unit/build checks, Chromium Playwright demo-flow, OpenAPI lint/type generation, чистый Compose-запуск и реальный API acceptance через frontend proxy прошли. Это не означает production-ready/HA-релиз, 100% покрытие или прохождение каждого ручного accessibility/restore сценария. Точная матрица доказательств и ограничений находится в [`docs/implementation-plan.md`](docs/implementation-plan.md).
+> **Статус на 2026-07-16:** локальный MVP реализован и проверен на core-контуре. Все 69 операций OpenAPI сопоставлены с Gin routes; backend unit/race/integration tests, frontend static/unit/build checks, desktop/mobile Chromium Playwright demo-flow, OpenAPI lint/type generation, чистый Compose-запуск и реальный API acceptance через frontend proxy прошли. Это не означает production-ready/HA-релиз, 100% покрытие или прохождение каждого ручного accessibility/restore сценария. Точная матрица доказательств и ограничений находится в [`docs/implementation-plan.md`](docs/implementation-plan.md).
 
 ## Что реализовано в MVP
 
 - регистрация, вход, короткоживущий access token, ротация refresh token и выход на одном/всех устройствах;
 - персональная библиотека и безопасная асинхронная обработка EPUB, FB2 и TXT;
+- встроенные и пользовательские JPEG/PNG/WebP-обложки с заменой и возвратом к оригиналу;
 - чтение по одной главе в браузере, scroll/paginated режимы, Light/Warm/Sepia/Dark/Custom и настройки типографики;
 - revision-safe позиция и продолжение чтения на другом устройстве;
 - серверный учёт reading sessions: start/heartbeat/finish, idle/visibility/focus, replay-safe idempotency и stale finalization;
-- дневная/недельная/месячная/книжная статистика с IANA timezone;
+- дневная/недельная/месячная/книжная статистика с IANA timezone и листаемым календарём полных недель;
 - mock-перевод без внешнего API и расширяемый `TranslationProvider`, PostgreSQL cache;
 - дедуплицированный словарь с контекстом/occurrences и статусами знания;
 - закладки, спокойные выделения, версионированные block notes и поиск;
@@ -234,7 +235,7 @@ TRANSLATION_PROVIDER=mock
 
 ## OpenAPI
 
-Полный контракт находится в [`backend/openapi/openapi.yaml`](backend/openapi/openapi.yaml): 66 operations на 48 paths (включая device management и авторизованный asset redirect), cookie/bearer security, uploads, idempotency, conflicts, cursor pagination, schemas и единая ошибка. Скрипт `scripts/check-openapi-routes.py` сравнивает его с фактическим Gin route inventory.
+Полный контракт находится в [`backend/openapi/openapi.yaml`](backend/openapi/openapi.yaml): 69 operations на 49 paths (включая device management, авторизованные asset redirect и same-origin cover stream), cookie/bearer security, uploads, idempotency, conflicts, cursor pagination, schemas и единая ошибка. Скрипт `scripts/check-openapi-routes.py` сравнивает его с фактическим Gin route inventory.
 
 ```json
 {
@@ -321,7 +322,7 @@ GitHub Actions определяет jobs для gofmt/vet/unit/race/build, golan
 
 Restart-проверка подтвердила, что frontend продолжает проксировать API после `force-recreate`, а PostgreSQL/RustFS сохраняют пользовательские metadata, progress/preferences, TOC, reading session и 152-байтовый оригинал книги. Для этого frontend Nginx использует Docker DNS resolver `127.0.0.11`, динамически разрешаемый upstream и shared upstream zone; `nginx -t` и пересобранный frontend image прошли. Это проверка локальной persistence, а не production backup/restore.
 
-Vitest statement coverage составляет 23.56% (36 тестов в 16 файлах); это стартовое покрытие критичных frontend primitives, а не доказательство полного UI coverage. Точные команды и границы evidence: [`docs/implementation-plan.md`](docs/implementation-plan.md).
+Vitest statement coverage составляет 24.06% (39 тестов в 17 файлах); это стартовое покрытие критичных frontend primitives, а не доказательство полного UI coverage. Точные команды и границы evidence: [`docs/implementation-plan.md`](docs/implementation-plan.md).
 
 Подробная тестовая матрица: [`docs/testing.md`](docs/testing.md).
 

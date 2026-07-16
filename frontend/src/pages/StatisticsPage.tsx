@@ -1,4 +1,4 @@
-import { BarChart3 } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useCurrentUser, useStatistics } from '../api/hooks'
@@ -6,23 +6,38 @@ import {
   DataTable,
   EmptyState,
   ErrorState,
-  Select,
+  IconButton,
   Skeleton,
   Tabs,
   type Column
 } from '../shared/ui'
 import { formatDate, formatDateTime, formatDuration, formatNumber } from '../shared/format'
-import type { BookStatistic, ReadingSession } from '../types/api'
+import { formatWeekRange, formatWeekday, getWeekRange } from '../shared/week'
+import type { BookStatistic, DailyStatistic, ReadingSession } from '../types/api'
 import styles from './pages.module.css'
 
 export function StatisticsPage() {
   const { t, i18n } = useTranslation()
-  const [days, setDays] = useState(14)
+  const [weekOffset, setWeekOffset] = useState(0)
   const timezone =
     useCurrentUser().data?.user.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
-  const queries = useStatistics(timezone, days)
+  const week = useMemo(() => getWeekRange(timezone, weekOffset), [timezone, weekOffset])
+  const queries = useStatistics(timezone, 7, { from: week.from, to: week.to })
   const overview = queries.overview.data
-  const daily = queries.daily.data ?? []
+  const daily = useMemo<DailyStatistic[]>(() => {
+    const byDate = new Map((queries.daily.data ?? []).map((item) => [item.date, item]))
+    return week.days.map(
+      (date) =>
+        byDate.get(date) ?? {
+          date,
+          active_seconds: 0,
+          idle_seconds: 0,
+          sessions_count: 0,
+          words_read_estimate: 0
+        }
+    )
+  }, [queries.daily.data, week.days])
+  const hasWeekActivity = daily.some((item) => item.active_seconds > 0)
 
   const bookColumns = useMemo<Column<BookStatistic>[]>(
     () => [
@@ -153,20 +168,16 @@ export function StatisticsPage() {
             </span>
           </div>
         </div>
-        {daily.some((item) => item.active_seconds > 0) ? (
-          <ActivityChart
-            values={daily.map((item) => ({
-              label: item.date.slice(5),
-              value: item.active_seconds
-            }))}
-          />
-        ) : (
-          <EmptyState
-            icon={BarChart3}
-            title={t('statistics.noActivity')}
-            body={t('statistics.subtitle')}
-          />
-        )}
+        <ActivityChart
+          values={daily.map((item) => ({
+            date: item.date,
+            label: formatWeekday(item.date, i18n.language),
+            value: item.active_seconds
+          }))}
+        />
+        {!hasWeekActivity ? (
+          <p className={styles.emptyChartNote}>{t('statistics.noActivity')}</p>
+        ) : null}
       </section>
     </>
   )
@@ -202,15 +213,29 @@ export function StatisticsPage() {
           <h1 className={styles.pageTitle}>{t('statistics.title')}</h1>
           <p className={styles.pageSubtitle}>{t('statistics.subtitle')}</p>
         </div>
-        <Select
-          className={styles.compactSelect}
-          value={days}
-          aria-label={t('statistics.title')}
-          onChange={(event) => setDays(Number(event.target.value))}
+        <div
+          className={styles.weekNavigator}
+          role="group"
+          aria-label={t('statistics.weekNavigation')}
         >
-          <option value={14}>{t('statistics.period14')}</option>
-          <option value={30}>{t('statistics.period30')}</option>
-        </Select>
+          <IconButton
+            icon={ChevronLeft}
+            label={t('statistics.previousWeek')}
+            onClick={() => setWeekOffset((value) => value - 1)}
+          />
+          <div className={styles.weekRange} aria-live="polite">
+            <strong>
+              {weekOffset === 0 ? t('statistics.currentWeek') : t('statistics.selectedWeek')}
+            </strong>
+            <span>{formatWeekRange(week.days, i18n.language)}</span>
+          </div>
+          <IconButton
+            icon={ChevronRight}
+            label={t('statistics.nextWeek')}
+            disabled={weekOffset >= 0}
+            onClick={() => setWeekOffset((value) => Math.min(0, value + 1))}
+          />
+        </div>
       </header>
       <Tabs
         items={[
@@ -264,15 +289,19 @@ function Metric({ label, value, foot }: { label: string; value: string; foot?: s
     </div>
   )
 }
-function ActivityChart({ values }: { values: Array<{ label: string; value: number }> }) {
+function ActivityChart({
+  values
+}: {
+  values: Array<{ date: string; label: string; value: number }>
+}) {
   const max = Math.max(...values.map((item) => item.value), 1)
   return (
     <div className={styles.chart} role="img" aria-label="Reading activity">
       {values.map((item) => (
         <div
-          key={item.label}
+          key={item.date}
           className={styles.chartColumn}
-          title={`${item.label}: ${Math.round(item.value / 60)} min`}
+          title={`${item.date}: ${Math.round(item.value / 60)} min`}
         >
           <div className={styles.chartTrack}>
             <div className={styles.chartBar} style={{ height: `${(item.value / max) * 100}%` }} />

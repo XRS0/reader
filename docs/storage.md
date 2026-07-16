@@ -12,6 +12,7 @@ RustFS is used through the AWS SDK for Go v2 S3 client with path-style addressin
 | `books-content` | `books/{book_id}/versions/{version}/chapters/{chapter_id}.html` | sanitized large chapter content |
 | `books-assets` | `books/{book_id}/versions/{version}/assets/{asset_id}` | extracted images/resources |
 | `books-covers` | `books/{book_id}/cover/{cover_id}` | normalized covers/thumbnails |
+| `books-covers` | `users/{user_id}/books/{book_id}/custom-cover/{cover_id}.{ext}` | user-provided JPEG/PNG/WebP covers |
 | `user-exports` | `exports/{user_id}/{export_id}` | short-retention user exports |
 
 IDs and hashes are canonicalized and generated server-side. Keys are constructed by a small storage-key module; handlers never join a client filename/path. The `rustfs-init` Compose job idempotently creates all five buckets using the AWS CLI after `/health` succeeds.
@@ -24,7 +25,8 @@ flowchart LR
     API --> Adapter["Storage port / AWS SDK v2 adapter"]
     Worker["Processing worker"] --> Adapter
     Adapter -->|"Head/Put/Get/Delete/Multipart/Presign"| RustFS[("RustFS buckets")]
-    Browser["Authorized browser"] -->|"short-lived presigned GET only"| RustFS
+    Browser["Authorized browser"] -->|"downloads/large objects: short-lived presigned GET"| RustFS
+    Browser -->|"same-origin authenticated cover stream"| API
     DB -. "bucket, key, sha256, size, media type, version" .-> Adapter
 ```
 

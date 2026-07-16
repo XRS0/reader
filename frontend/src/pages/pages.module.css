@@ -275,6 +275,35 @@
   width: 100%;
   max-width: 240px;
 }
+.visuallyHiddenInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.bookCoverActions {
+  display: grid;
+  max-width: 240px;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.bookCoverActions button {
+  width: 100%;
+}
+.coverUploadHint,
+.coverUploadError {
+  max-width: 240px;
+  margin: var(--space-2) 0 0;
+  color: var(--color-muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+.coverUploadError {
+  color: var(--color-danger);
+}
 .bookDocument {
   grid-column: span 9;
   min-width: 0;
@@ -436,6 +465,33 @@
   font-size: 9px;
   text-overflow: clip;
   white-space: nowrap;
+}
+.weekNavigator {
+  display: grid;
+  grid-template-columns: auto minmax(170px, auto) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+.weekRange {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  text-align: center;
+}
+.weekRange strong {
+  font-size: var(--text-sm);
+  font-weight: 620;
+}
+.weekRange span {
+  color: var(--color-muted-foreground);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.emptyChartNote {
+  margin: var(--space-3) 0 0;
+  color: var(--color-muted-foreground);
+  font-size: var(--text-sm);
+  text-align: center;
 }
 .legend {
   display: flex;

@@ -128,7 +128,12 @@ export const en = {
     noHighlights: 'No highlights yet',
     processingTitle: 'Preparing this book',
     processingBody: 'Contents will appear after background processing finishes.',
-    failedTitle: 'This book could not be processed'
+    failedTitle: 'This book could not be processed',
+    coverUpload: 'Add cover',
+    coverReplace: 'Replace cover',
+    coverRemove: 'Remove custom cover',
+    coverUploadHint: 'JPEG, PNG or WebP, up to 5 MB.',
+    coverUploadError: 'Could not update the cover. Check the file type and size.'
   },
   reader: {
     contents: 'Contents',
@@ -243,7 +248,12 @@ export const en = {
       stale: 'Timed out',
       finalized: 'Finalized'
     },
-    noActivity: 'No reading in this period'
+    noActivity: 'No reading in this period',
+    currentWeek: 'Current week',
+    selectedWeek: 'Week',
+    weekNavigation: 'Week navigation',
+    previousWeek: 'Previous week',
+    nextWeek: 'Next week'
   },
   notes: {
     title: 'Notes',

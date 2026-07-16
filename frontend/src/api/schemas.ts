@@ -29,6 +29,7 @@ export const bookSchema = z.object({
   processing_status: z.enum(['uploaded', 'queued', 'processing', 'ready', 'failed']),
   processing_error: z.string().nullish(),
   cover_url: z.string().nullish(),
+  has_custom_cover: z.boolean().default(false),
   progress_percent: z.number().min(0).max(100).default(0),
   current_chapter_id: uuid.nullish(),
   estimated_minutes_remaining: z.number().nullish(),

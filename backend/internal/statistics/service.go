@@ -67,6 +67,23 @@ func (s *Service) Overview(ctx context.Context, userID uuid.UUID) (Overview, err
 	if err != nil {
 		return o, err
 	}
+	return s.enrichOverview(ctx, userID, o)
+}
+
+func (s *Service) OverviewRange(ctx context.Context, userID uuid.UUID, from, to time.Time) (Overview, error) {
+	var o Overview
+	if !to.After(from) || to.Sub(from) > 366*24*time.Hour {
+		return o, errors.New("invalid date range")
+	}
+	err := s.db.NewRaw(`SELECT COALESCE(sum(active_seconds),0) AS active_seconds,COALESCE(sum(idle_seconds),0) AS idle_seconds,count(*) AS session_count,COALESCE(avg(active_seconds),0) AS average_session_seconds,COALESCE(sum(words_read_estimate),0) AS words_read,COALESCE(sum(pages_read_estimate),0) AS pages_read FROM reading_sessions WHERE user_id=? AND started_at>=? AND started_at<? AND status IN ('finished','stale','finalized')`, userID, from, to).Scan(ctx, &o)
+	if err != nil {
+		return o, err
+	}
+	return s.enrichOverview(ctx, userID, o)
+}
+
+func (s *Service) enrichOverview(ctx context.Context, userID uuid.UUID, o Overview) (Overview, error) {
+	var err error
 	if err = s.db.NewRaw(`SELECT count(*) AS books_total,count(*) FILTER(WHERE COALESCE(rp.progress_percent,0)>0) AS books_started,count(*) FILTER(WHERE COALESCE(rp.progress_percent,0)>=99.5) AS books_completed FROM books b LEFT JOIN reading_progress rp ON rp.book_id=b.id AND rp.user_id=b.user_id WHERE b.user_id=? AND b.deleted_at IS NULL`, userID).Scan(ctx, &o); err != nil {
 		return o, err
 	}
@@ -105,6 +122,21 @@ func (s *Service) Books(ctx context.Context, userID uuid.UUID, limit, offset int
 	}
 	var items []BookStat
 	err := s.db.NewRaw(`SELECT b.id AS book_id,b.title,b.format,b.language,COALESCE(rp.progress_percent,0) AS progress_percent,COALESCE(sum(rs.active_seconds),0) AS active_seconds,COALESCE(sum(rs.idle_seconds),0) AS idle_seconds,count(rs.id) AS session_count,COALESCE(sum(rs.words_read_estimate),0) AS words_read,max(rs.started_at) AS last_read_at FROM books b LEFT JOIN reading_progress rp ON rp.book_id=b.id AND rp.user_id=b.user_id LEFT JOIN reading_sessions rs ON rs.book_id=b.id AND rs.user_id=b.user_id AND rs.status IN ('finished','stale','finalized') WHERE b.user_id=? AND b.deleted_at IS NULL GROUP BY b.id,rp.progress_percent ORDER BY last_read_at DESC NULLS LAST,b.created_at DESC LIMIT ? OFFSET ?`, userID, limit, offset).Scan(ctx, &items)
+	return items, err
+}
+
+func (s *Service) BooksRange(ctx context.Context, userID uuid.UUID, from, to time.Time, limit, offset int) ([]BookStat, error) {
+	if !to.After(from) || to.Sub(from) > 366*24*time.Hour {
+		return nil, errors.New("invalid date range")
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	var items []BookStat
+	err := s.db.NewRaw(`SELECT b.id AS book_id,b.title,b.format,b.language,COALESCE(rp.progress_percent,0) AS progress_percent,COALESCE(sum(rs.active_seconds),0) AS active_seconds,COALESCE(sum(rs.idle_seconds),0) AS idle_seconds,count(rs.id) AS session_count,COALESCE(sum(rs.words_read_estimate),0) AS words_read,max(rs.started_at) AS last_read_at FROM books b LEFT JOIN reading_progress rp ON rp.book_id=b.id AND rp.user_id=b.user_id LEFT JOIN reading_sessions rs ON rs.book_id=b.id AND rs.user_id=b.user_id AND rs.status IN ('finished','stale','finalized') AND rs.started_at>=? AND rs.started_at<? WHERE b.user_id=? AND b.deleted_at IS NULL GROUP BY b.id,rp.progress_percent ORDER BY last_read_at DESC NULLS LAST,b.created_at DESC LIMIT ? OFFSET ?`, from, to, userID, limit, offset).Scan(ctx, &items)
 	return items, err
 }
 func (s *Service) Sessions(ctx context.Context, userID uuid.UUID, limit, offset int) ([]model.ReadingSession, error) {

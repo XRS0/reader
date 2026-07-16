@@ -1,4 +1,5 @@
-import { BookOpenText, Clock3, MessageSquareText, Star } from 'lucide-react'
+import { ImagePlus, BookOpenText, Clock3, MessageSquareText, Star, Trash2 } from 'lucide-react'
+import { useRef, type ChangeEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { BookCover } from '../entities/BookCard'
@@ -11,6 +12,8 @@ import {
   useDictionary,
   useMutateBook,
   useNotes,
+  useRemoveBookCover,
+  useUploadBookCover,
   useStatistics
 } from '../api/hooks'
 import {
@@ -42,6 +45,15 @@ export function BookPage() {
     30
   )
   const mutateBook = useMutateBook()
+  const uploadCover = useUploadBookCover(bookId ?? '')
+  const removeCover = useRemoveBookCover(bookId ?? '')
+  const coverInput = useRef<HTMLInputElement>(null)
+
+  const handleCoverChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (file) void uploadCover.mutateAsync(file)
+  }
 
   if (bookQuery.isLoading) return <LoadingState label={t('common.loading')} />
   if (bookQuery.isError || !bookQuery.data) {
@@ -213,6 +225,41 @@ export function BookPage() {
       <div className={styles.bookHero}>
         <aside className={styles.bookCoverColumn}>
           <BookCover book={book} className={styles.bookDetailCover} />
+          <input
+            ref={coverInput}
+            className={styles.visuallyHiddenInput}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            aria-label={t('book.coverUpload')}
+            onChange={handleCoverChange}
+          />
+          <div className={styles.bookCoverActions}>
+            <Button
+              startIcon={ImagePlus}
+              loading={uploadCover.isPending}
+              disabled={removeCover.isPending}
+              onClick={() => coverInput.current?.click()}
+            >
+              {book.has_custom_cover ? t('book.coverReplace') : t('book.coverUpload')}
+            </Button>
+            {book.has_custom_cover ? (
+              <Button
+                variant="danger"
+                startIcon={Trash2}
+                loading={removeCover.isPending}
+                disabled={uploadCover.isPending}
+                onClick={() => void removeCover.mutateAsync()}
+              >
+                {t('book.coverRemove')}
+              </Button>
+            ) : null}
+          </div>
+          {uploadCover.isError || removeCover.isError ? (
+            <p className={styles.coverUploadError} role="alert">
+              {t('book.coverUploadError')}
+            </p>
+          ) : null}
+          <p className={styles.coverUploadHint}>{t('book.coverUploadHint')}</p>
         </aside>
         <article className={styles.bookDocument}>
           <h1 className={styles.bookTitle}>{book.title}</h1>

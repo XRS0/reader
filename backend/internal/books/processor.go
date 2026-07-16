@@ -318,6 +318,7 @@ func (p *Processor) Cleanup(ctx context.Context, payload CleanupPayload) error {
 	}
 	add(book.OriginalBucket, book.OriginalKey)
 	add(book.CoverBucket, book.CoverKey)
+	add(book.CustomCoverBucket, book.CustomCoverKey)
 	add(payload.OriginalBucket, payload.OriginalKey)
 	for _, asset := range assets {
 		add(asset.Bucket, asset.ObjectKey)

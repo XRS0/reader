@@ -41,10 +41,13 @@ export const queryKeys = {
   highlights: (bookId: string) => ['book', bookId, 'highlights'] as const,
   dictionary: (query?: DictionaryQuery) => ['dictionary', query ?? {}] as const,
   notes: (query?: { search?: string; book_id?: string }) => ['notes', query ?? {}] as const,
-  overview: (timezone: string) => ['statistics', 'overview', timezone] as const,
-  daily: (timezone: string, days: number) => ['statistics', 'daily', timezone, days] as const,
-  bookStats: (timezone: string) => ['statistics', 'books', timezone] as const,
-  sessions: ['reading-sessions'] as const
+  overview: (timezone: string, from: string, to: string) =>
+    ['statistics', 'overview', timezone, from, to] as const,
+  daily: (timezone: string, from: string, to: string) =>
+    ['statistics', 'daily', timezone, from, to] as const,
+  bookStats: (timezone: string, from: string, to: string) =>
+    ['statistics', 'books', timezone, from, to] as const,
+  sessions: (from: string, to: string) => ['reading-sessions', from, to] as const
 }
 
 export function useCurrentUser(): UseQueryResult<AuthResponse> {
@@ -187,6 +190,28 @@ export function useUpdateBook(bookId: string) {
   })
 }
 
+export function useUploadBookCover(bookId: string) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (file: File) => booksApi.updateCover(bookId, file),
+    onSuccess: (book) => {
+      client.setQueryData(queryKeys.book(bookId), book)
+      void client.invalidateQueries({ queryKey: ['books'] })
+    }
+  })
+}
+
+export function useRemoveBookCover(bookId: string) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => booksApi.removeCover(bookId),
+    onSuccess: (book) => {
+      client.setQueryData(queryKeys.book(bookId), book)
+      void client.invalidateQueries({ queryKey: ['books'] })
+    }
+  })
+}
+
 export function useDeleteBook(bookId: string) {
   const client = useQueryClient()
   return useMutation({
@@ -277,24 +302,31 @@ export function useTranslation() {
   })
 }
 
-export function useStatistics(timezone: string, days: number) {
-  const to = new Date()
+export function useStatistics(
+  timezone: string,
+  days: number,
+  range?: { from: string; to: string }
+) {
+  const [anchor] = useState(() => new Date())
+  const to = anchor
   const from = new Date(to.getTime() - (days - 1) * 86_400_000)
-  const params = { from: from.toISOString(), to: to.toISOString(), timezone }
+  const params = range
+    ? { ...range, timezone }
+    : { from: from.toISOString(), to: to.toISOString(), timezone }
   const overview = useQuery({
-    queryKey: queryKeys.overview(timezone),
+    queryKey: queryKeys.overview(timezone, params.from, params.to),
     queryFn: () => statisticsApi.overview(params)
   })
   const daily = useQuery({
-    queryKey: queryKeys.daily(timezone, days),
+    queryKey: queryKeys.daily(timezone, params.from, params.to),
     queryFn: () => statisticsApi.daily(params)
   })
   const books = useQuery({
-    queryKey: queryKeys.bookStats(timezone),
+    queryKey: queryKeys.bookStats(timezone, params.from, params.to),
     queryFn: () => statisticsApi.books(params)
   })
   const sessions = useQuery({
-    queryKey: queryKeys.sessions,
+    queryKey: queryKeys.sessions(params.from, params.to),
     queryFn: () => sessionsApi.list({ from: params.from, to: params.to })
   })
   return { overview, daily, books, sessions }

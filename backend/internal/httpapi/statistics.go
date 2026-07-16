@@ -19,12 +19,15 @@ func (s *Server) registerStatisticsRoutes(r *gin.RouterGroup) {
 	r.GET("/statistics/dictionary", s.statisticsDictionary)
 }
 func (s *Server) statisticsOverview(c *gin.Context) {
-	o, err := s.services.Statistics.Overview(c.Request.Context(), userID(c))
+	from, to, timezone, ok := dateRange(c)
+	if !ok {
+		return
+	}
+	o, err := s.services.Statistics.OverviewRange(c.Request.Context(), userID(c), from, to)
 	if err != nil {
 		s.statisticsError(c, err)
 		return
 	}
-	timezone := c.DefaultQuery("timezone", "UTC")
 	streak, _ := s.services.Statistics.Streak(c.Request.Context(), userID(c), timezone)
 	dictionary, _ := s.services.Statistics.Dictionary(c.Request.Context(), userID(c))
 	wpm := 0.0
@@ -47,9 +50,14 @@ func (s *Server) statisticsBuckets(c *gin.Context, group string) {
 		return
 	}
 	if group == "day" {
+		location, locationErr := time.LoadLocation(timezone)
+		if locationErr != nil {
+			s.statisticsError(c, locationErr)
+			return
+		}
 		result := make([]gin.H, len(items))
 		for i, item := range items {
-			result[i] = gin.H{"date": item.Period.Format("2006-01-02"), "active_seconds": item.ActiveSeconds, "idle_seconds": item.IdleSeconds, "sessions_count": item.SessionCount, "words_read_estimate": item.WordsRead}
+			result[i] = gin.H{"date": item.Period.In(location).Format("2006-01-02"), "active_seconds": item.ActiveSeconds, "idle_seconds": item.IdleSeconds, "sessions_count": item.SessionCount, "words_read_estimate": item.WordsRead}
 		}
 		c.JSON(http.StatusOK, result)
 		return
@@ -58,7 +66,11 @@ func (s *Server) statisticsBuckets(c *gin.Context, group string) {
 }
 func (s *Server) statisticsBooks(c *gin.Context) {
 	limit, offset := parsePage(c)
-	items, err := s.services.Statistics.Books(c.Request.Context(), userID(c), limit, offset)
+	from, to, _, ok := dateRange(c)
+	if !ok {
+		return
+	}
+	items, err := s.services.Statistics.BooksRange(c.Request.Context(), userID(c), from, to, limit, offset)
 	if err != nil {
 		s.statisticsError(c, err)
 		return

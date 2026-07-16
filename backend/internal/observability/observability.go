@@ -168,8 +168,7 @@ func SetupTracing(ctx context.Context, c config.Config) (func(context.Context) e
 	}
 	res, err := resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
+		resource.NewSchemaless(
 			semconv.ServiceName(c.ServiceName),
 			semconv.DeploymentEnvironmentName(c.Environment),
 		),

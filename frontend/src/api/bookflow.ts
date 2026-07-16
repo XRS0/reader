@@ -113,6 +113,13 @@ export const booksApi = {
     >
   ): Promise<Book> =>
     apiRequest(`/books/${id(bookId)}`, bookSchema, { method: 'PATCH', body: input }),
+  updateCover: (bookId: string, file: File): Promise<Book> => {
+    const form = new FormData()
+    form.set('file', file)
+    return apiRequest(`/books/${id(bookId)}/cover`, bookSchema, { method: 'PUT', body: form })
+  },
+  removeCover: (bookId: string): Promise<Book> =>
+    apiRequest(`/books/${id(bookId)}/cover`, bookSchema, { method: 'DELETE' }),
   remove: (bookId: string): Promise<void> =>
     apiRequestVoid(`/books/${id(bookId)}`, { method: 'DELETE' }),
   reprocess: (bookId: string): Promise<void> =>

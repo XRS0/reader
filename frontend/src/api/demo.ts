@@ -484,6 +484,21 @@ export async function demoRequest(path: string, options: RequestOptions): Promis
       preferences = { ...preferences, ...bodyOf<Partial<ReaderPreferences>>(options) }
     return preferences
   }
+  const coverMatch = pathname.match(/^\/books\/([^/]+)\/cover$/)
+  if (coverMatch) {
+    const id = coverMatch[1]!
+    books = books.map((book) =>
+      book.id === id
+        ? {
+            ...book,
+            has_custom_cover: method === 'PUT',
+            cover_url: method === 'PUT' ? book.cover_url : null,
+            updated_at: now.toISOString()
+          }
+        : book
+    )
+    return findBook(id)
+  }
   const bookmarkListMatch = pathname.match(/^\/books\/([^/]+)\/bookmarks$/)
   if (bookmarkListMatch) {
     if (method === 'POST') {

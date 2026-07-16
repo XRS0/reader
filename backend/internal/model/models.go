@@ -63,6 +63,8 @@ type Book struct {
 	OriginalKey       string          `json:"-"`
 	CoverBucket       string          `json:"-"`
 	CoverKey          string          `json:"-"`
+	CustomCoverBucket string          `json:"-"`
+	CustomCoverKey    string          `json:"-"`
 	ProcessingVersion int             `json:"processing_version"`
 	ProcessingError   string          `json:"processing_error,omitempty"`
 	IsFavorite        bool            `json:"is_favorite"`
