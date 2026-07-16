@@ -76,6 +76,13 @@ func NormalizeWord(v string) string {
 
 func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) (model.DictionaryEntry, error) {
 	normalized := NormalizeWord(in.OriginalWord)
+	in.SourceLanguage = strings.ToLower(strings.TrimSpace(in.SourceLanguage))
+	in.TargetLanguage = strings.ToLower(strings.TrimSpace(in.TargetLanguage))
+	if in.TargetLanguage == "" {
+		// A monolingual dictionary entry (for example, a Russian word with a
+		// definition) still needs a stable value for the unique key.
+		in.TargetLanguage = in.SourceLanguage
+	}
 	if err := validateCreate(in, normalized); err != nil {
 		return model.DictionaryEntry{}, err
 	}
@@ -83,9 +90,9 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 		in.Status = "unknown"
 	}
 	now := s.now().UTC()
-	entry := model.DictionaryEntry{ID: uuid.New(), UserID: userID, SourceLanguage: strings.ToLower(in.SourceLanguage), TargetLanguage: strings.ToLower(in.TargetLanguage), OriginalWord: strings.TrimSpace(in.OriginalWord), NormalizedWord: normalized, Lemma: in.Lemma, Transcription: in.Transcription, PartOfSpeech: in.PartOfSpeech, Translation: strings.TrimSpace(in.Translation), AlternativeTranslations: in.AlternativeTranslations, Definition: in.Definition, Note: in.Note, Status: in.Status, EncounterCount: 1, FirstSeenAt: now, LastSeenAt: now, CreatedAt: now, UpdatedAt: now}
+	entry := model.DictionaryEntry{ID: uuid.New(), UserID: userID, SourceLanguage: in.SourceLanguage, TargetLanguage: in.TargetLanguage, OriginalWord: strings.TrimSpace(in.OriginalWord), NormalizedWord: normalized, Lemma: truncate(in.Lemma, 500), Transcription: truncate(in.Transcription, 500), PartOfSpeech: truncate(in.PartOfSpeech, 100), Translation: truncate(in.Translation, 5000), AlternativeTranslations: in.AlternativeTranslations, Definition: truncate(in.Definition, 5000), Note: truncate(in.Note, 10000), Status: in.Status, EncounterCount: 1, FirstSeenAt: now, LastSeenAt: now, CreatedAt: now, UpdatedAt: now}
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		_, err := tx.NewInsert().Model(&entry).On("CONFLICT (user_id, source_language, target_language, normalized_word) DO UPDATE").Set("encounter_count=de.encounter_count+1").Set("last_seen_at=EXCLUDED.last_seen_at").Set("updated_at=EXCLUDED.updated_at").Set("deleted_at=NULL").Returning("*").Exec(ctx)
+		_, err := tx.NewInsert().Model(&entry).On("CONFLICT (user_id, source_language, target_language, normalized_word) DO UPDATE").Set("encounter_count=de.encounter_count+1").Set("last_seen_at=EXCLUDED.last_seen_at").Set("updated_at=EXCLUDED.updated_at").Set("translation=CASE WHEN de.translation='' THEN EXCLUDED.translation ELSE de.translation END").Set("definition=CASE WHEN de.definition='' THEN EXCLUDED.definition ELSE de.definition END").Set("deleted_at=NULL").Returning("*").Exec(ctx)
 		if err != nil {
 			return err
 		}
@@ -181,7 +188,7 @@ func (s *Service) List(ctx context.Context, userID uuid.UUID, search, status, la
 	q := s.db.NewSelect().Model((*model.DictionaryEntry)(nil)).Where("user_id=? AND deleted_at IS NULL", userID)
 	if search != "" {
 		needle := "%" + strings.ToLower(strings.TrimSpace(search)) + "%"
-		q = q.Where("(lower(original_word) LIKE ? OR lower(translation) LIKE ?)", needle, needle)
+		q = q.Where("(lower(original_word) LIKE ? OR lower(translation) LIKE ? OR lower(definition) LIKE ? OR lower(note) LIKE ?)", needle, needle, needle, needle)
 	}
 	if status != "" {
 		q = q.Where("status=?", status)
@@ -204,7 +211,7 @@ func (s *Service) Update(ctx context.Context, userID, id uuid.UUID, in UpdateInp
 	}
 	q := s.db.NewUpdate().Model(&entry).Set("updated_at=?", s.now().UTC()).WherePK().Where("user_id=? AND deleted_at IS NULL", userID)
 	if in.Translation != nil {
-		if strings.TrimSpace(*in.Translation) == "" || len(*in.Translation) > 5000 {
+		if len(*in.Translation) > 5000 {
 			return entry, errors.New("invalid translation")
 		}
 		q = q.Set("translation=?", strings.TrimSpace(*in.Translation))
@@ -217,6 +224,16 @@ func (s *Service) Update(ctx context.Context, userID, id uuid.UUID, in UpdateInp
 	}
 	if in.Definition != nil {
 		q = q.Set("definition=?", truncate(*in.Definition, 5000))
+	}
+	nextTranslation, nextDefinition := entry.Translation, entry.Definition
+	if in.Translation != nil {
+		nextTranslation = strings.TrimSpace(*in.Translation)
+	}
+	if in.Definition != nil {
+		nextDefinition = strings.TrimSpace(*in.Definition)
+	}
+	if nextTranslation == "" && nextDefinition == "" {
+		return entry, errors.New("translation or definition is required")
 	}
 	if in.Note != nil {
 		q = q.Set("note=?", truncate(*in.Note, 10000))
@@ -279,8 +296,8 @@ func validateCreate(in CreateInput, normalized string) error {
 	if len(in.SourceLanguage) == 0 || len(in.SourceLanguage) > 32 || len(in.TargetLanguage) == 0 || len(in.TargetLanguage) > 32 {
 		return errors.New("invalid languages")
 	}
-	if strings.TrimSpace(in.Translation) == "" || len(in.Translation) > 5000 {
-		return errors.New("invalid translation")
+	if len(in.Translation) > 5000 || len(in.Definition) > 5000 || (strings.TrimSpace(in.Translation) == "" && strings.TrimSpace(in.Definition) == "") {
+		return errors.New("translation or definition is required")
 	}
 	if in.Status != "" && !validStatus(in.Status) {
 		return errors.New("invalid status")

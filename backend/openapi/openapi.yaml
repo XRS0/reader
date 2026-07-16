@@ -3532,8 +3532,8 @@ components:
           maxLength: 32
         target_language:
           type: string
-          minLength: 1
           maxLength: 32
+          description: Optional for monolingual entries; defaults to source_language.
         original_word:
           type: string
           minLength: 1
@@ -3549,14 +3549,16 @@ components:
           type: string
         translation:
           type: string
-          minLength: 1
           maxLength: 5000
+          description: Optional when definition is provided.
         alternative_translations:
           type: array
           items:
             type: string
         definition:
           type: string
+          maxLength: 5000
+          description: A meaning or free-form description; may be used without a translation.
         note:
           type: string
         status:
@@ -3565,16 +3567,14 @@ components:
           $ref: '#/components/schemas/WordOccurrenceCreate'
       required:
       - source_language
-      - target_language
       - original_word
-      - translation
       additionalProperties: false
+      description: At least one of translation or definition must contain text.
     DictionaryEntryUpdate:
       type: object
       properties:
         translation:
           type: string
-          minLength: 1
           maxLength: 5000
         transcription:
           type: string

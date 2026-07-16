@@ -553,6 +553,28 @@
   margin: var(--space-1) 0;
   color: var(--color-muted-foreground);
 }
+.wordDefinition {
+  display: block;
+  max-width: 70ch;
+  overflow: hidden;
+  color: var(--color-foreground);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dictionaryForm {
+  display: grid;
+  gap: var(--space-4);
+}
+.dictionaryLanguageFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.formError {
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
 .wordMeta {
   display: flex;
   flex-wrap: wrap;

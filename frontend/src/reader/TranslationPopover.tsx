@@ -76,6 +76,8 @@ export function TranslationPopover({
   value,
   loading,
   error,
+  addError = false,
+  adding = false,
   position,
   added,
   mobile = false,
@@ -86,6 +88,8 @@ export function TranslationPopover({
   value?: TranslationValue
   loading: boolean
   error: boolean
+  addError?: boolean
+  adding?: boolean
   position?: { x: number; y: number }
   added: boolean
   mobile?: boolean
@@ -124,6 +128,11 @@ export function TranslationPopover({
           {t('reader.translationError')}
         </p>
       ) : null}
+      {addError ? (
+        <p className={styles.contrastError} role="alert">
+          {t('reader.dictionaryError')}
+        </p>
+      ) : null}
       {value ? (
         <div aria-live="polite">
           <p className={styles.translationValue}>{value.translation}</p>
@@ -145,6 +154,7 @@ export function TranslationPopover({
               size="small"
               startIcon={added ? Check : BookPlus}
               disabled={added || !isWord}
+              loading={adding}
               onClick={onAdd}
             >
               {added ? t('reader.addedDictionary') : t('reader.addDictionary')}

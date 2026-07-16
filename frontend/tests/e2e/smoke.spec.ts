@@ -141,6 +141,22 @@ test('statistics overview shows a complete week and navigates between weeks', as
   await expect(navigator.getByRole('button', { name: /Следующая неделя|Next week/ })).toBeDisabled()
 })
 
+test('dictionary accepts a Russian word with a definition and no translation', async ({ page }) => {
+  await page.goto('/dictionary')
+  await page.getByRole('button', { name: /Добавить слово|Add word/ }).click()
+
+  const dialog = page.getByRole('dialog', { name: /Новое слово|New word/ })
+  await dialog.getByLabel(/^Слово$|^Word$/).fill('Самобытность')
+  await dialog
+    .getByLabel(/Значение \/ описание|Meaning \/ definition/)
+    .fill('Неповторимое своеобразие человека или явления.')
+  await dialog.getByRole('button', { name: /Добавить слово|Add word/ }).click()
+
+  await expect(dialog).toBeHidden()
+  await expect(page.getByText('Самобытность')).toBeVisible()
+  await expect(page.getByText('Неповторимое своеобразие человека или явления.')).toBeVisible()
+})
+
 test('book details allow adding, replacing and removing a custom cover', async ({ page }) => {
   await page.goto('/books/019f670d-13bd-7bc3-94fb-000000000001')
   const fileInput = page.getByLabel(/Добавить обложку|Add cover/)

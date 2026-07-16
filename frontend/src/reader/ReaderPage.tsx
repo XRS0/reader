@@ -871,6 +871,8 @@ export function ReaderPage() {
           value={translationValue}
           loading={translation.isPending}
           error={translation.isError}
+          addError={createDictionary.isError}
+          adding={createDictionary.isPending}
           position={selection.popover}
           added={dictionaryAdded}
           onAdd={() => void addSelectionToDictionary()}
@@ -926,6 +928,8 @@ export function ReaderPage() {
                 value={translationValue}
                 loading={translation.isPending}
                 error={translation.isError}
+                addError={createDictionary.isError}
+                adding={createDictionary.isPending}
                 added={dictionaryAdded}
                 onAdd={() => void addSelectionToDictionary()}
                 onClose={() => translation.reset()}

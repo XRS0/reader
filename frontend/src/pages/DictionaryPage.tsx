@@ -1,17 +1,25 @@
-import { Download, Languages, List, Table2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Download, Languages, List, Plus, Table2 } from 'lucide-react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
 import { dictionaryApi } from '../api/bookflow'
-import { useDebouncedValue, useDictionary, useUpdateDictionaryEntry } from '../api/hooks'
+import {
+  useCreateDictionaryEntry,
+  useDebouncedValue,
+  useDictionary,
+  useUpdateDictionaryEntry
+} from '../api/hooks'
 import {
   Badge,
   Button,
   DataTable,
+  Dialog,
   Drawer,
   EmptyState,
   ErrorState,
+  Field,
+  Input,
   SearchInput,
   Select,
   Skeleton,
@@ -32,6 +40,7 @@ export function DictionaryPage() {
   const debounced = useDebouncedValue(search)
   const query = useDictionary({ search: debounced, status, sort: 'last_seen', limit: 80 })
   const [selected, setSelected] = useState<DictionaryEntry>()
+  const [createOpen, setCreateOpen] = useState(false)
 
   useEffect(() => {
     const media = matchMedia('(max-width: 720px)')
@@ -77,13 +86,20 @@ export function DictionaryPage() {
       {
         key: 'translation',
         header: t('dictionary.translation'),
-        render: (entry) => entry.translation
+        render: (entry) => entry.translation || '—'
+      },
+      {
+        key: 'definition',
+        header: t('dictionary.definition'),
+        render: (entry) => entry.definition || '—'
       },
       {
         key: 'language',
         header: t('dictionary.language'),
         render: (entry) =>
-          `${entry.source_language.toUpperCase()} → ${entry.target_language.toUpperCase()}`
+          entry.translation
+            ? `${entry.source_language.toUpperCase()} → ${entry.target_language.toUpperCase()}`
+            : entry.source_language.toUpperCase()
       },
       {
         key: 'status',
@@ -120,6 +136,9 @@ export function DictionaryPage() {
           </p>
         </div>
         <div className={styles.headerActions}>
+          <Button variant="accent" startIcon={Plus} onClick={() => setCreateOpen(true)}>
+            {t('dictionary.addWord')}
+          </Button>
           <Button
             startIcon={Download}
             onClick={() =>
@@ -225,7 +244,12 @@ export function DictionaryPage() {
             >
               <span>
                 <span className={styles.wordMain}>{entry.original_word}</span>
-                <span className={styles.wordTranslation}>{entry.translation}</span>
+                {entry.translation ? (
+                  <span className={styles.wordTranslation}>{entry.translation}</span>
+                ) : null}
+                {entry.definition ? (
+                  <span className={styles.wordDefinition}>{entry.definition}</span>
+                ) : null}
                 <span className={styles.wordMeta}>
                   <span>{entry.transcription}</span>
                   <span>{entry.book_title}</span>
@@ -243,6 +267,7 @@ export function DictionaryPage() {
       <Drawer open={Boolean(selected)} onClose={closeEntry} label={t('dictionary.entryDetails')}>
         {selected ? <DictionaryDetails entry={selected} onClose={closeEntry} /> : null}
       </Drawer>
+      <NewDictionaryEntryDialog open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
   )
 }
@@ -261,20 +286,41 @@ function DictionaryDetails({ entry, onClose }: { entry: DictionaryEntry; onClose
   const update = useUpdateDictionaryEntry(entry.id)
   const [note, setNote] = useState(entry.note ?? '')
   const [status, setStatus] = useState(entry.status)
+  const [translation, setTranslation] = useState(entry.translation)
+  const [definition, setDefinition] = useState(entry.definition ?? '')
   const save = async () => {
-    await update.mutateAsync({ note, status })
-    onClose()
+    try {
+      await update.mutateAsync({ note, status, translation, definition })
+      onClose()
+    } catch {
+      // The mutation state renders the error without closing the drawer.
+    }
   }
   return (
     <div className={styles.sidePanel} style={{ padding: 24 }}>
       <div>
         <h2 className={styles.sidePanelWord}>{entry.original_word}</h2>
-        <p className={styles.sidePanelTranslation}>{entry.translation}</p>
+        {entry.translation ? (
+          <p className={styles.sidePanelTranslation}>{entry.translation}</p>
+        ) : null}
         <p className={styles.wordTranscription}>
           {[entry.transcription, entry.part_of_speech].filter(Boolean).join(' · ')}
         </p>
       </div>
-      {entry.definition ? <p>{entry.definition}</p> : null}
+      <Field label={t('dictionary.translation')} htmlFor={`dictionary-translation-${entry.id}`}>
+        <Input
+          id={`dictionary-translation-${entry.id}`}
+          value={translation}
+          onChange={(event) => setTranslation(event.target.value)}
+        />
+      </Field>
+      <Field label={t('dictionary.definition')} htmlFor={`dictionary-definition-${entry.id}`}>
+        <Textarea
+          id={`dictionary-definition-${entry.id}`}
+          value={definition}
+          onChange={(event) => setDefinition(event.target.value)}
+        />
+      </Field>
       <label>
         <span className={styles.settingLabel}>{t('dictionary.status')}</span>
         <Select
@@ -305,11 +351,139 @@ function DictionaryDetails({ entry, onClose }: { entry: DictionaryEntry; onClose
         </div>
       </div>
       <div className={styles.headerActions}>
+        {update.isError ? (
+          <span className={styles.formError} role="alert">
+            {t('dictionary.createError')}
+          </span>
+        ) : null}
         <Button onClick={onClose}>{t('common.cancel')}</Button>
         <Button variant="accent" loading={update.isPending} onClick={() => void save()}>
           {t('common.save')}
         </Button>
       </div>
     </div>
+  )
+}
+
+function NewDictionaryEntryDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useTranslation()
+  const fieldPrefix = useId()
+  const create = useCreateDictionaryEntry()
+  const [word, setWord] = useState('')
+  const [sourceLanguage, setSourceLanguage] = useState('ru')
+  const [targetLanguage, setTargetLanguage] = useState('')
+  const [translation, setTranslation] = useState('')
+  const [definition, setDefinition] = useState('')
+  const [validationError, setValidationError] = useState('')
+
+  const close = () => {
+    create.reset()
+    setValidationError('')
+    onClose()
+  }
+  const submit = async () => {
+    if (!word.trim() || (!translation.trim() && !definition.trim())) {
+      setValidationError(t('dictionary.contentRequired'))
+      return
+    }
+    setValidationError('')
+    try {
+      await create.mutateAsync({
+        source_language: sourceLanguage,
+        target_language: translation.trim() ? targetLanguage || undefined : undefined,
+        original_word: word.trim(),
+        translation: translation.trim() || undefined,
+        definition: definition.trim() || undefined,
+        status: 'unknown'
+      })
+      setWord('')
+      setTranslation('')
+      setDefinition('')
+      close()
+    } catch {
+      // The mutation state renders the API error in the dialog.
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={close}
+      title={t('dictionary.addWordTitle')}
+      description={t('dictionary.addWordDescription')}
+      closeLabel={t('common.close')}
+      footer={
+        <>
+          <Button onClick={close}>{t('common.cancel')}</Button>
+          <Button variant="accent" loading={create.isPending} onClick={() => void submit()}>
+            {t('dictionary.addWord')}
+          </Button>
+        </>
+      }
+    >
+      <div className={styles.dictionaryForm}>
+        <Field label={t('dictionary.word')} htmlFor={`${fieldPrefix}-word`}>
+          <Input
+            id={`${fieldPrefix}-word`}
+            autoFocus
+            value={word}
+            placeholder={t('dictionary.wordPlaceholder')}
+            onChange={(event) => setWord(event.target.value)}
+          />
+        </Field>
+        <div className={styles.dictionaryLanguageFields}>
+          <Field label={t('dictionary.sourceLanguage')} htmlFor={`${fieldPrefix}-source-language`}>
+            <Select
+              id={`${fieldPrefix}-source-language`}
+              value={sourceLanguage}
+              onChange={(event) => setSourceLanguage(event.target.value)}
+            >
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </Select>
+          </Field>
+          <Field label={t('dictionary.targetLanguage')} htmlFor={`${fieldPrefix}-target-language`}>
+            <Select
+              id={`${fieldPrefix}-target-language`}
+              value={targetLanguage}
+              disabled={!translation.trim()}
+              onChange={(event) => setTargetLanguage(event.target.value)}
+            >
+              <option value="">{t('dictionary.noTranslation')}</option>
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </Select>
+          </Field>
+        </div>
+        <Field
+          label={t('dictionary.translation')}
+          htmlFor={`${fieldPrefix}-translation`}
+          hint={t('dictionary.translationPlaceholder')}
+        >
+          <Input
+            id={`${fieldPrefix}-translation`}
+            value={translation}
+            placeholder={t('dictionary.translationPlaceholder')}
+            onChange={(event) => {
+              const value = event.target.value
+              setTranslation(value)
+              if (value && !targetLanguage) setTargetLanguage(sourceLanguage === 'ru' ? 'en' : 'ru')
+            }}
+          />
+        </Field>
+        <Field
+          label={t('dictionary.definition')}
+          htmlFor={`${fieldPrefix}-definition`}
+          error={validationError || (create.isError ? t('dictionary.createError') : undefined)}
+        >
+          <Textarea
+            id={`${fieldPrefix}-definition`}
+            value={definition}
+            placeholder={t('dictionary.definitionPlaceholder')}
+            onChange={(event) => setDefinition(event.target.value)}
+          />
+        </Field>
+      </div>
+    </Dialog>
   )
 }

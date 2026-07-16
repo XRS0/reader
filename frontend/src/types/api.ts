@@ -272,13 +272,13 @@ export interface DictionaryQuery {
 
 export interface CreateDictionaryEntry {
   source_language: string
-  target_language: string
+  target_language?: string
   original_word: string
-  normalized_word: string
+  normalized_word?: string
   lemma?: string
   transcription?: string
   part_of_speech?: string
-  translation: string
+  translation?: string
   alternative_translations?: string[]
   definition?: string
   note?: string

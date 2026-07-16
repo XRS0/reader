@@ -51,4 +51,22 @@ describe('TranslationPopover', () => {
     )
     expect(screen.getByRole('status')).toBeInTheDocument()
   })
+
+  it('shows a dictionary-specific error and locks the button while saving', () => {
+    render(
+      <TranslationPopover
+        selectedText="unfamiliar"
+        value={translation}
+        loading={false}
+        error={false}
+        addError
+        adding
+        added={false}
+        onAdd={() => undefined}
+        onClose={() => undefined}
+      />
+    )
+    expect(screen.getByText(/Не удалось добавить слово|Could not add the word/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /словарь|dictionary/i })).toBeDisabled()
+  })
 })

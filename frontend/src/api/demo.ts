@@ -622,14 +622,23 @@ export async function demoRequest(path: string, options: RequestOptions): Promis
       dictionary.filter(
         (entry) =>
           (!search ||
-            `${entry.original_word} ${entry.translation}`.toLowerCase().includes(search)) &&
+            `${entry.original_word} ${entry.translation} ${entry.definition ?? ''}`
+              .toLowerCase()
+              .includes(search)) &&
           (!status || status === 'all' || entry.status === status)
       )
     )
   }
   if (pathname === '/dictionary' && method === 'POST') {
     const input = bodyOf<CreateDictionaryEntry>(options)
-    const existing = dictionary.find((entry) => entry.normalized_word === input.normalized_word)
+    const normalizedWord = input.normalized_word || input.original_word.trim().toLowerCase()
+    const targetLanguage = input.target_language || input.source_language
+    const existing = dictionary.find(
+      (entry) =>
+        entry.normalized_word === normalizedWord &&
+        entry.source_language === input.source_language &&
+        entry.target_language === targetLanguage
+    )
     if (existing) {
       existing.encounter_count += 1
       existing.last_seen_at = now.toISOString()
@@ -638,6 +647,9 @@ export async function demoRequest(path: string, options: RequestOptions): Promis
     const entry: DictionaryEntry = {
       ...input,
       id: uuid(String(330 + dictionary.length)),
+      target_language: targetLanguage,
+      normalized_word: normalizedWord,
+      translation: input.translation ?? '',
       alternative_translations: input.alternative_translations ?? [],
       status: input.status ?? 'unknown',
       encounter_count: 1,

@@ -138,8 +138,8 @@ export function CommandPalette() {
     const wordItems: CommandItem[] = dictionary.map((entry) => ({
       id: `word-${entry.id}`,
       label: entry.original_word,
-      meta: entry.translation,
-      keywords: `${entry.original_word} ${entry.translation}`,
+      meta: entry.translation || entry.definition,
+      keywords: `${entry.original_word} ${entry.translation} ${entry.definition ?? ''}`,
       group: 'books',
       icon: Languages,
       action: () => closeAnd(() => navigate(`/dictionary?entry=${entry.id}`))

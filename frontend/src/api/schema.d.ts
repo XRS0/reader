@@ -1395,16 +1395,20 @@ export interface components {
       /** Format: date-time */
       deleted_at?: string | null
     }
+    /** @description At least one of translation or definition must contain text. */
     DictionaryEntryCreate: {
       source_language: string
-      target_language: string
+      /** @description Optional for monolingual entries; defaults to source_language. */
+      target_language?: string
       original_word: string
       normalized_word?: string
       lemma?: string
       transcription?: string
       part_of_speech?: string
-      translation: string
+      /** @description Optional when definition is provided. */
+      translation?: string
       alternative_translations?: string[]
+      /** @description A meaning or free-form description; may be used without a translation. */
       definition?: string
       note?: string
       status?: components['schemas']['DictionaryStatus']

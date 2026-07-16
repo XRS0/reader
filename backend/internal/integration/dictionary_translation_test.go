@@ -70,6 +70,22 @@ func TestDictionaryDeduplicationOccurrencesAndOwnership(t *testing.T) {
 	require.Len(t, items, 1)
 	require.Equal(t, first.ID, items[0].ID)
 
+	monolingual, err := service.Create(testContext(t), owner.ID, dictionary.CreateInput{
+		SourceLanguage: "RU",
+		OriginalWord:   "Самобытность",
+		Definition:     "Неповторимое своеобразие человека или явления.",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "ru", monolingual.SourceLanguage)
+	require.Equal(t, "ru", monolingual.TargetLanguage)
+	require.Empty(t, monolingual.Translation)
+	require.NotEmpty(t, monolingual.Definition)
+
+	items, total, err = service.List(testContext(t), owner.ID, "своеобразие", "", "", 50, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+	require.Equal(t, monolingual.ID, items[0].ID)
+
 	occurrences, err := service.Occurrences(testContext(t), owner.ID, first.ID, 50, 0)
 	require.NoError(t, err)
 	require.Len(t, occurrences, 2)
