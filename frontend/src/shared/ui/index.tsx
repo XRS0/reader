@@ -466,7 +466,8 @@ export function AlertDialog({
   title,
   description,
   confirmLabel,
-  cancelLabel
+  cancelLabel,
+  confirmLoading = false
 }: {
   open: boolean
   onClose: () => void
@@ -475,6 +476,7 @@ export function AlertDialog({
   description: string
   confirmLabel: string
   cancelLabel: string
+  confirmLoading?: boolean
 }) {
   return (
     <Dialog
@@ -486,7 +488,7 @@ export function AlertDialog({
       footer={
         <>
           <Button onClick={onClose}>{cancelLabel}</Button>
-          <Button variant="danger" onClick={onConfirm}>
+          <Button variant="danger" loading={confirmLoading} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </>

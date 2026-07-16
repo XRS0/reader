@@ -279,6 +279,14 @@ export function useUpdateDictionaryEntry(entryId: string) {
   })
 }
 
+export function useDeleteDictionaryEntry() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (entryId: string) => dictionaryApi.remove(entryId),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['dictionary'] })
+  })
+}
+
 export function useNotes(query: { search?: string; book_id?: string } = {}) {
   return useQuery({ queryKey: queryKeys.notes(query), queryFn: () => notesApi.list(query) })
 }

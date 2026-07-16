@@ -1,53 +1,46 @@
-import { Download, Languages, List, Plus, Table2 } from 'lucide-react'
-import { useEffect, useId, useMemo, useState } from 'react'
+import { ChevronRight, Download, Languages, Plus, Trash2 } from 'lucide-react'
+import { useEffect, useId, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import clsx from 'clsx'
 import { dictionaryApi } from '../api/bookflow'
 import {
   useCreateDictionaryEntry,
   useDebouncedValue,
+  useDeleteDictionaryEntry,
   useDictionary,
   useUpdateDictionaryEntry
 } from '../api/hooks'
 import {
+  AlertDialog,
   Badge,
   Button,
-  DataTable,
   Dialog,
   Drawer,
   EmptyState,
   ErrorState,
   Field,
+  IconButton,
   Input,
   SearchInput,
   Select,
   Skeleton,
-  Textarea,
-  type Column
+  Textarea
 } from '../shared/ui'
 import { formatDate } from '../shared/format'
 import type { DictionaryEntry, DictionaryStatus } from '../types/api'
 import styles from './pages.module.css'
 
 export function DictionaryPage() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<DictionaryStatus | 'all'>('all')
-  const [view, setView] = useState<'table' | 'list'>('table')
-  const [mobile, setMobile] = useState(() => matchMedia('(max-width: 720px)').matches)
   const debounced = useDebouncedValue(search)
   const query = useDictionary({ search: debounced, status, sort: 'last_seen', limit: 80 })
   const [selected, setSelected] = useState<DictionaryEntry>()
+  const [deleting, setDeleting] = useState<DictionaryEntry>()
   const [createOpen, setCreateOpen] = useState(false)
-
-  useEffect(() => {
-    const media = matchMedia('(max-width: 720px)')
-    const listener = () => setMobile(media.matches)
-    media.addEventListener('change', listener)
-    return () => media.removeEventListener('change', listener)
-  }, [])
+  const remove = useDeleteDictionaryEntry()
 
   useEffect(() => {
     const entryId = searchParams.get('entry')
@@ -69,62 +62,16 @@ export function DictionaryPage() {
     })
   }
 
-  const columns = useMemo<Column<DictionaryEntry>[]>(
-    () => [
-      {
-        key: 'word',
-        header: t('dictionary.word'),
-        render: (entry) => (
-          <span className={styles.wordCell}>
-            <span className={styles.wordMain}>{entry.original_word}</span>
-            {entry.transcription ? (
-              <span className={styles.wordTranscription}>{entry.transcription}</span>
-            ) : null}
-          </span>
-        )
-      },
-      {
-        key: 'translation',
-        header: t('dictionary.translation'),
-        render: (entry) => entry.translation || '—'
-      },
-      {
-        key: 'definition',
-        header: t('dictionary.definition'),
-        render: (entry) => entry.definition || '—'
-      },
-      {
-        key: 'language',
-        header: t('dictionary.language'),
-        render: (entry) =>
-          entry.translation
-            ? `${entry.source_language.toUpperCase()} → ${entry.target_language.toUpperCase()}`
-            : entry.source_language.toUpperCase()
-      },
-      {
-        key: 'status',
-        header: t('dictionary.status'),
-        render: (entry) => <StatusBadge status={entry.status} />
-      },
-      {
-        key: 'encounters',
-        header: t('dictionary.encounters'),
-        render: (entry) => entry.encounter_count
-      },
-      {
-        key: 'last',
-        header: t('dictionary.lastSeen'),
-        render: (entry) => formatDate(entry.last_seen_at, i18n.language)
-      },
-      { key: 'book', header: t('dictionary.book'), render: (entry) => entry.book_title ?? '—' },
-      {
-        key: 'review',
-        header: t('dictionary.review'),
-        render: (entry) => formatDate(entry.next_review_at, i18n.language)
-      }
-    ],
-    [i18n.language, t]
-  )
+  const confirmDelete = async () => {
+    if (!deleting) return
+    try {
+      await remove.mutateAsync(deleting.id)
+      if (selected?.id === deleting.id) closeEntry()
+      setDeleting(undefined)
+    } catch {
+      // Keep the dialog open and replace its description with the mutation error.
+    }
+  }
 
   return (
     <div className={styles.page}>
@@ -179,28 +126,6 @@ export function DictionaryPage() {
           <option value="mastered">{t('dictionary.mastered')}</option>
           <option value="ignored">{t('dictionary.ignored')}</option>
         </Select>
-        {!mobile ? (
-          <div className={styles.viewToggle} role="group" aria-label={t('dictionary.title')}>
-            <button
-              type="button"
-              className={clsx(styles.viewButton, view === 'table' && styles.viewButtonActive)}
-              aria-label={t('dictionary.table')}
-              aria-pressed={view === 'table'}
-              onClick={() => setView('table')}
-            >
-              <Table2 size={16} />
-            </button>
-            <button
-              type="button"
-              className={clsx(styles.viewButton, view === 'list' && styles.viewButtonActive)}
-              aria-label={t('dictionary.list')}
-              aria-pressed={view === 'list'}
-              onClick={() => setView('list')}
-            >
-              <List size={16} />
-            </button>
-          </div>
-        ) : null}
       </div>
 
       {query.isLoading ? (
@@ -225,49 +150,73 @@ export function DictionaryPage() {
           title={t('dictionary.emptyTitle')}
           body={t('dictionary.emptyBody')}
         />
-      ) : view === 'table' && !mobile ? (
-        <DataTable
-          columns={columns}
-          items={query.data.items}
-          rowKey={(entry) => entry.id}
-          label={t('dictionary.title')}
-          onRowClick={openEntry}
-        />
       ) : (
         <div className={styles.dictionaryList}>
           {query.data.items.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              className={styles.wordCard}
-              onClick={() => openEntry(entry)}
-            >
-              <span>
-                <span className={styles.wordMain}>{entry.original_word}</span>
-                {entry.translation ? (
-                  <span className={styles.wordTranslation}>{entry.translation}</span>
-                ) : null}
-                {entry.definition ? (
-                  <span className={styles.wordDefinition}>{entry.definition}</span>
-                ) : null}
-                <span className={styles.wordMeta}>
-                  <span>{entry.transcription}</span>
-                  <span>{entry.book_title}</span>
-                  <span>
-                    {t('dictionary.encounters')}: {entry.encounter_count}
-                  </span>
+            <article key={entry.id} className={styles.wordCard}>
+              <button
+                type="button"
+                className={styles.wordCardOpen}
+                aria-label={t('dictionary.openEntry', { word: entry.original_word })}
+                onClick={() => openEntry(entry)}
+              >
+                <span className={styles.wordCardTopline}>
+                  <span className={styles.wordMain}>{entry.original_word}</span>
+                  <StatusBadge status={entry.status} />
                 </span>
-              </span>
-              <StatusBadge status={entry.status} />
-            </button>
+                {entry.transcription ? (
+                  <span className={styles.wordTranscription}>{entry.transcription}</span>
+                ) : null}
+                <span className={styles.wordCardSummary}>
+                  {entry.translation || entry.definition || t('dictionary.noDetails')}
+                </span>
+                <span className={styles.wordCardFooter}>
+                  <span>
+                    {entry.translation
+                      ? `${entry.source_language.toUpperCase()} → ${entry.target_language.toUpperCase()}`
+                      : entry.source_language.toUpperCase()}
+                  </span>
+                  <ChevronRight size={16} aria-hidden="true" />
+                </span>
+              </button>
+              <IconButton
+                className={styles.wordCardDelete}
+                size="small"
+                icon={Trash2}
+                label={t('dictionary.deleteWord', { word: entry.original_word })}
+                onClick={() => {
+                  remove.reset()
+                  setDeleting(entry)
+                }}
+              />
+            </article>
           ))}
         </div>
       )}
 
       <Drawer open={Boolean(selected)} onClose={closeEntry} label={t('dictionary.entryDetails')}>
-        {selected ? <DictionaryDetails entry={selected} onClose={closeEntry} /> : null}
+        {selected ? (
+          <DictionaryDetails
+            entry={selected}
+            onClose={closeEntry}
+            onDelete={() => setDeleting(selected)}
+          />
+        ) : null}
       </Drawer>
       <NewDictionaryEntryDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      <AlertDialog
+        open={Boolean(deleting)}
+        onClose={() => {
+          remove.reset()
+          setDeleting(undefined)
+        }}
+        onConfirm={() => void confirmDelete()}
+        title={deleting?.original_word ?? t('common.delete')}
+        description={t(remove.isError ? 'dictionary.deleteError' : 'dictionary.deleteConfirm')}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        confirmLoading={remove.isPending}
+      />
     </div>
   )
 }
@@ -281,7 +230,15 @@ function StatusBadge({ status }: { status: DictionaryStatus }) {
   )
 }
 
-function DictionaryDetails({ entry, onClose }: { entry: DictionaryEntry; onClose: () => void }) {
+function DictionaryDetails({
+  entry,
+  onClose,
+  onDelete
+}: {
+  entry: DictionaryEntry
+  onClose: () => void
+  onDelete: () => void
+}) {
   const { t, i18n } = useTranslation()
   const update = useUpdateDictionaryEntry(entry.id)
   const [note, setNote] = useState(entry.note ?? '')
@@ -307,6 +264,12 @@ function DictionaryDetails({ entry, onClose }: { entry: DictionaryEntry; onClose
           {[entry.transcription, entry.part_of_speech].filter(Boolean).join(' · ')}
         </p>
       </div>
+      {entry.definition ? (
+        <div className={styles.entryDefinition}>
+          <span>{t('dictionary.definition')}</span>
+          <p>{entry.definition}</p>
+        </div>
+      ) : null}
       <Field label={t('dictionary.translation')} htmlFor={`dictionary-translation-${entry.id}`}>
         <Input
           id={`dictionary-translation-${entry.id}`}
@@ -356,6 +319,9 @@ function DictionaryDetails({ entry, onClose }: { entry: DictionaryEntry; onClose
             {t('dictionary.createError')}
           </span>
         ) : null}
+        <Button variant="danger" startIcon={Trash2} onClick={onDelete}>
+          {t('common.delete')}
+        </Button>
         <Button onClick={onClose}>{t('common.cancel')}</Button>
         <Button variant="accent" loading={update.isPending} onClick={() => void save()}>
           {t('common.save')}

@@ -155,6 +155,23 @@ test('dictionary accepts a Russian word with a definition and no translation', a
   await expect(dialog).toBeHidden()
   await expect(page.getByText('Самобытность')).toBeVisible()
   await expect(page.getByText('Неповторимое своеобразие человека или явления.')).toBeVisible()
+
+  await page
+    .getByRole('button', {
+      name: /^(?:Открыть карточку слова «Самобытность»|Open details for “Самобытность”)$/
+    })
+    .click()
+  const details = page.getByRole('dialog', { name: /Карточка слова|Word details/ })
+  await expect(
+    details.getByRole('paragraph').filter({
+      hasText: 'Неповторимое своеобразие человека или явления.'
+    })
+  ).toBeVisible()
+  await details.getByRole('button', { name: /Удалить|Delete/ }).click()
+
+  const confirmation = page.getByRole('dialog', { name: 'Самобытность' })
+  await confirmation.getByRole('button', { name: /Удалить|Delete/ }).click()
+  await expect(page.getByText('Самобытность')).toHaveCount(0)
 })
 
 test('book details allow adding, replacing and removing a custom cover', async ({ page }) => {

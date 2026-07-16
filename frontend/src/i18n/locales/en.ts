@@ -228,6 +228,11 @@ export const en = {
     emptyTitle: 'Your dictionary is empty',
     emptyBody: 'Add a word manually or select an unfamiliar word while reading.',
     entryDetails: 'Word details',
+    openEntry: 'Open details for “{{word}}”',
+    noDetails: 'Open the card to add a definition',
+    deleteWord: 'Delete “{{word}}”',
+    deleteConfirm: 'Delete this word from your dictionary? This cannot be undone.',
+    deleteError: 'Could not delete the word. Please try again.',
     context: 'Context',
     note: 'Personal note',
     occurrences: 'Occurrences'
