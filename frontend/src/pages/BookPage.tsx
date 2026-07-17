@@ -28,6 +28,7 @@ import {
 } from '../shared/ui'
 import { formatDate, formatDateTime, formatDuration } from '../shared/format'
 import styles from './pages.module.css'
+import { decodeHtmlEntities } from '../reader/selectionText'
 
 export function BookPage() {
   const { bookId } = useParams()
@@ -194,7 +195,9 @@ export function BookPage() {
           className={styles.flatRow}
           to={`/read/${book.id}?chapter=${highlight.chapter_id}&locator=${encodeURIComponent(highlight.locator)}`}
         >
-          <blockquote className={styles.quote}>{highlight.selected_text}</blockquote>
+          <blockquote className={styles.quote}>
+            {decodeHtmlEntities(highlight.selected_text)}
+          </blockquote>
           <span>{formatDate(highlight.created_at, i18n.language)}</span>
         </Link>
       ))}

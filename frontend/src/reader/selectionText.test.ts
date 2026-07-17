@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatSelectedText } from './selectionText'
+import { decodeHtmlEntities, formatSelectedText } from './selectionText'
 
 describe('formatSelectedText', () => {
   it('preserves paragraphs and removes layout whitespace', () => {
@@ -10,5 +10,10 @@ describe('formatSelectedText', () => {
 
   it('limits stored selections', () => {
     expect(formatSelectedText('abcdef', 4)).toBe('abcd')
+  })
+
+  it('decodes numeric and double-encoded quote entities', () => {
+    expect(decodeHtmlEntities('&#34;Я есмь&#34')).toBe('"Я есмь"')
+    expect(decodeHtmlEntities('&amp;#34;Я есмь&amp;#34;')).toBe('"Я есмь"')
   })
 })

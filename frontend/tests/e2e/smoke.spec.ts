@@ -252,6 +252,10 @@ test('highlights preserve paragraphs and support edit, note conversion and delet
 }) => {
   await page.goto('/highlights')
   const card = page.locator('article').filter({ hasText: 'let the world remain unfamiliar' })
+  await expect(card.locator('blockquote')).toHaveText(
+    '"let the world remain unfamiliar for a little longer"'
+  )
+  await expect(card.locator('blockquote')).not.toContainText('&#34')
   await card.getByRole('button', { name: /Изменить|Edit/ }).click()
 
   const editDialog = page.getByRole('dialog', { name: /Изменить выделение|Edit highlight/ })

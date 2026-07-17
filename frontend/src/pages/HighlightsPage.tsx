@@ -25,6 +25,7 @@ import {
 } from '../shared/ui'
 import { formatDate } from '../shared/format'
 import type { Highlight, HighlightColor } from '../types/api'
+import { decodeHtmlEntities } from '../reader/selectionText'
 import styles from './pages.module.css'
 
 type DisplayHighlight = Highlight & { book_title: string }
@@ -59,7 +60,8 @@ export function HighlightsPage() {
   const removeHighlight = useDeleteHighlight()
 
   const addToNote = async (highlight: DisplayHighlight) => {
-    const firstLine = highlight.selected_text.split('\n').find(Boolean) ?? highlight.selected_text
+    const selectedText = decodeHtmlEntities(highlight.selected_text)
+    const firstLine = selectedText.split('\n').find(Boolean) ?? selectedText
     const note = await createNote.mutateAsync({
       title: firstLine.slice(0, 72),
       book_id: highlight.book_id,
@@ -68,7 +70,7 @@ export function HighlightsPage() {
         {
           id: crypto.randomUUID(),
           type: 'saved_quote',
-          text: highlight.selected_text,
+          text: selectedText,
           book_id: highlight.book_id,
           locator: highlight.locator
         },
@@ -146,7 +148,9 @@ export function HighlightsPage() {
                   </Button>
                 </div>
               </div>
-              <blockquote className={styles.highlightQuote}>{highlight.selected_text}</blockquote>
+              <blockquote className={styles.highlightQuote}>
+                {decodeHtmlEntities(highlight.selected_text)}
+              </blockquote>
               {highlight.note ? <p className={styles.highlightNote}>{highlight.note}</p> : null}
               <Link
                 className={styles.highlightBookLink}
@@ -201,7 +205,7 @@ function EditHighlightDialog({
   const { t } = useTranslation()
   const { notify } = useToast()
   const update = useUpdateHighlight()
-  const [text, setText] = useState(highlight.selected_text)
+  const [text, setText] = useState(decodeHtmlEntities(highlight.selected_text))
   const [note, setNote] = useState(highlight.note ?? '')
   const [color, setColor] = useState<HighlightColor>(highlight.color)
 

@@ -19,3 +19,9 @@ func TestUnsupportedBlockRejected(t *testing.T) {
 	_, _, err := sanitizeBlocks(json.RawMessage(`[{"type":"raw_html","html":"<iframe>"}]`))
 	require.Error(t, err)
 }
+
+func TestPlainDecodesEntitiesBeforeSanitizing(t *testing.T) {
+	require.Equal(t, `"Я есмь"`, plain(`&#34;Я есмь&#34`))
+	require.Equal(t, `"Я есмь"`, plain(`&amp;#34;Я есмь&amp;#34;`))
+	require.Empty(t, plain(`&lt;script&gt;alert(1)&lt;/script&gt;`))
+}

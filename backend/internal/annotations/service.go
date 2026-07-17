@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"html"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +19,7 @@ import (
 )
 
 var ErrNotFound = errors.New("annotation not found")
+var numericEntityPattern = regexp.MustCompile(`(?i)&#(x[0-9a-f]+|[0-9]+);?`)
 
 type Service struct {
 	db  *bun.DB
@@ -326,7 +330,39 @@ func validColor(v string) bool {
 	}
 	return false
 }
-func plain(v string) string { return strings.TrimSpace(bluemonday.StrictPolicy().Sanitize(v)) }
+func plain(v string) string {
+	v = decodeEntities(v)
+	v = bluemonday.StrictPolicy().Sanitize(v)
+	return strings.TrimSpace(decodeEntities(v))
+}
+
+func decodeEntities(v string) string {
+	for range 3 {
+		decoded := html.UnescapeString(v)
+		decoded = numericEntityPattern.ReplaceAllStringFunc(decoded, func(entity string) string {
+			match := numericEntityPattern.FindStringSubmatch(entity)
+			if len(match) != 2 {
+				return entity
+			}
+			base := 10
+			value := match[1]
+			if strings.HasPrefix(strings.ToLower(value), "x") {
+				base = 16
+				value = value[1:]
+			}
+			codePoint, err := strconv.ParseInt(value, base, 32)
+			if err != nil || codePoint <= 0 || codePoint > 0x10ffff || codePoint >= 0xd800 && codePoint <= 0xdfff {
+				return entity
+			}
+			return string(rune(codePoint))
+		})
+		if decoded == v {
+			break
+		}
+		v = decoded
+	}
+	return v
+}
 func sanitizeBlocks(raw json.RawMessage) (json.RawMessage, string, error) {
 	if len(raw) == 0 {
 		raw = json.RawMessage(`[]`)

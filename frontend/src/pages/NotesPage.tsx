@@ -24,6 +24,7 @@ import {
 } from '../shared/ui'
 import { formatDate } from '../shared/format'
 import type { Note, NoteBlock, NoteBlockType } from '../types/api'
+import { decodeHtmlEntities } from '../reader/selectionText'
 import styles from './pages.module.css'
 
 function createDraft(): Note {
@@ -38,7 +39,7 @@ function createDraft(): Note {
 }
 
 function notePreview(note: Note): string {
-  return (
+  return decodeHtmlEntities(
     note.blocks
       .find((block) => block.text?.trim())
       ?.text?.replace(/\s+/g, ' ')
@@ -223,7 +224,12 @@ function NoteEditor({
   const { t, i18n } = useTranslation()
   const { notify } = useToast()
   const [title, setTitle] = useState(note.title)
-  const [blocks, setBlocks] = useState(note.blocks.length ? note.blocks : createDraft().blocks)
+  const [blocks, setBlocks] = useState(
+    (note.blocks.length ? note.blocks : createDraft().blocks).map((block) => ({
+      ...block,
+      text: block.text ? decodeHtmlEntities(block.text) : block.text
+    }))
+  )
   const [newType, setNewType] = useState<NoteBlockType>('paragraph')
   const create = useCreateNote()
   const update = useUpdateNote(note.id === 'draft' ? undefined : note.id)

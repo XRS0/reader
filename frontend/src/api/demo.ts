@@ -269,7 +269,7 @@ let highlights: Highlight[] = [
     chapter_id: chapterTwo,
     locator: 'chapter:2:offset:174',
     text_anchor: 'let the world remain unfamiliar',
-    selected_text: 'let the world remain unfamiliar for a little longer',
+    selected_text: '&#34;let the world remain unfamiliar for a little longer&#34',
     context: 'Observation, his teacher once said, was an agreement to…',
     color: 'sand',
     note: 'Patience before categorisation.',
