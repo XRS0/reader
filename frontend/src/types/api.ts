@@ -336,6 +336,8 @@ export interface Highlight {
   updated_at: ISODate
 }
 
+export type HighlightUpdate = Partial<Pick<Highlight, 'selected_text' | 'color' | 'note'>>
+
 export type NoteBlockType =
   | 'paragraph'
   | 'heading1'

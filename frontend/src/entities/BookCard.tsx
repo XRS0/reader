@@ -1,4 +1,13 @@
-import { Download, Edit3, MoreHorizontal, Play, RefreshCw, Star, Trash2 } from 'lucide-react'
+import {
+  Download,
+  Edit3,
+  ImagePlus,
+  MoreHorizontal,
+  Play,
+  RefreshCw,
+  Star,
+  Trash2
+} from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
@@ -40,6 +49,7 @@ export interface BookCardProps {
   onFavorite?: (book: Book) => void
   onDelete?: (book: Book) => void
   onEdit?: (book: Book) => void
+  onCover?: (book: Book) => void
   onReprocess?: (book: Book) => void
 }
 
@@ -49,6 +59,7 @@ export function BookCard({
   onFavorite,
   onDelete,
   onEdit,
+  onCover,
   onReprocess
 }: BookCardProps) {
   const { t } = useTranslation()
@@ -76,6 +87,7 @@ export function BookCard({
       onSelect: () => onFavorite?.(book)
     },
     { id: 'edit', label: t('library.metadata'), icon: Edit3, onSelect: () => onEdit?.(book) },
+    { id: 'cover', label: t('book.coverManage'), icon: ImagePlus, onSelect: () => onCover?.(book) },
     {
       id: 'download',
       label: t('library.download'),

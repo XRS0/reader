@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FileUp, Grid2X2, List, Plus, Table2 } from 'lucide-react'
+import { FileUp, Grid2X2, ImagePlus, List, Plus, Table2, Trash2 } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
@@ -10,7 +10,9 @@ import {
   useMutateBook,
   useRemoveBook,
   useReprocessBook,
+  useRemoveBookCover,
   useUploadBook,
+  useUploadBookCover,
   useCurrentUser
 } from '../api/hooks'
 import {
@@ -62,6 +64,7 @@ export function LibraryPage() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File>()
   const [editingBook, setEditingBook] = useState<Book>()
+  const [coverBook, setCoverBook] = useState<Book>()
   const [deletingBook, setDeletingBook] = useState<Book>()
   const debouncedSearch = useDebouncedValue(search)
   const favorite = searchParams.get('favorite') === 'true' ? true : undefined
@@ -306,6 +309,7 @@ export function LibraryPage() {
                   })
                 }
                 onEdit={setEditingBook}
+                onCover={setCoverBook}
                 onDelete={setDeletingBook}
                 onReprocess={(value) => void reprocess.mutateAsync(value.id)}
               />
@@ -360,6 +364,8 @@ export function LibraryPage() {
         />
       ) : null}
 
+      {coverBook ? <CoverDialog book={coverBook} onClose={() => setCoverBook(undefined)} /> : null}
+
       <AlertDialog
         open={Boolean(deletingBook)}
         onClose={() => setDeletingBook(undefined)}
@@ -373,6 +379,83 @@ export function LibraryPage() {
         cancelLabel={t('common.cancel')}
       />
     </div>
+  )
+}
+
+function CoverDialog({ book, onClose }: { book: Book; onClose: () => void }) {
+  const { t } = useTranslation()
+  const { notify } = useToast()
+  const [file, setFile] = useState<File>()
+  const [currentBook, setCurrentBook] = useState(book)
+  const upload = useUploadBookCover(book.id)
+  const remove = useRemoveBookCover(book.id)
+
+  const save = async () => {
+    if (!file) return
+    if (
+      !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
+      file.size > 5 * 1024 * 1024
+    ) {
+      notify(t('book.coverUploadError'), 'error')
+      return
+    }
+    const updatedBook = await upload.mutateAsync(file)
+    setCurrentBook(updatedBook)
+    setFile(undefined)
+    notify(t('book.coverSaved'), 'success')
+  }
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={t('book.coverManage')}
+      description={t('book.coverUploadHint')}
+      closeLabel={t('common.close')}
+      footer={
+        <>
+          {currentBook.has_custom_cover ? (
+            <Button
+              variant="danger"
+              startIcon={Trash2}
+              loading={remove.isPending}
+              onClick={() =>
+                void remove.mutateAsync().then((updatedBook) => {
+                  setCurrentBook(updatedBook)
+                  notify(t('book.coverRemoved'), 'success')
+                })
+              }
+            >
+              {t('book.coverRemove')}
+            </Button>
+          ) : null}
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button
+            variant="accent"
+            startIcon={ImagePlus}
+            loading={upload.isPending}
+            disabled={!file}
+            onClick={() => void save()}
+          >
+            {currentBook.has_custom_cover ? t('book.coverReplace') : t('book.coverUpload')}
+          </Button>
+        </>
+      }
+    >
+      <div className={styles.coverPicker}>
+        <BookCover book={currentBook} className={styles.coverPickerPreview} />
+        <label className={styles.coverPickerField}>
+          <ImagePlus size={22} aria-hidden="true" />
+          <span>{file?.name ?? t('book.coverChoose')}</span>
+          <input
+            className="sr-only"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(event) => setFile(event.target.files?.[0])}
+          />
+        </label>
+      </div>
+    </Dialog>
   )
 }
 

@@ -530,6 +530,22 @@ export async function demoRequest(path: string, options: RequestOptions): Promis
     }
     return page(highlights.filter((item) => item.book_id === highlightListMatch[1]))
   }
+  const highlightMatch = pathname.match(/^\/highlights\/([^/]+)$/)
+  if (highlightMatch) {
+    const index = highlights.findIndex((item) => item.id === highlightMatch[1])
+    if (method === 'PATCH' && index >= 0) {
+      highlights[index] = {
+        ...highlights[index]!,
+        ...bodyOf<Partial<Highlight>>(options),
+        updated_at: now.toISOString()
+      }
+      return highlights[index]
+    }
+    if (method === 'DELETE' && index >= 0) {
+      highlights.splice(index, 1)
+      return undefined
+    }
+  }
   const bookIdMatch = pathname.match(/^\/books\/([^/]+)$/)
   if (bookIdMatch) {
     const id = bookIdMatch[1]!
@@ -697,6 +713,23 @@ export async function demoRequest(path: string, options: RequestOptions): Promis
       return item
     }
     return page(notes)
+  }
+  const noteMatch = pathname.match(/^\/notes\/([^/]+)$/)
+  if (noteMatch) {
+    const index = notes.findIndex((item) => item.id === noteMatch[1])
+    if (method === 'PATCH' && index >= 0) {
+      notes[index] = {
+        ...notes[index]!,
+        ...bodyOf<Partial<Note>>(options),
+        updated_at: now.toISOString()
+      }
+      return notes[index]
+    }
+    if (method === 'DELETE' && index >= 0) {
+      notes.splice(index, 1)
+      return undefined
+    }
+    return index >= 0 ? notes[index] : undefined
   }
   if (pathname === '/highlights') return page(highlights)
 

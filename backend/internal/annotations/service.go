@@ -45,8 +45,9 @@ type HighlightInput struct {
 	Note         string          `json:"note"`
 }
 type HighlightPatch struct {
-	Color *string `json:"color"`
-	Note  *string `json:"note"`
+	SelectedText *string `json:"selected_text"`
+	Color        *string `json:"color"`
+	Note         *string `json:"note"`
 }
 type NoteInput struct {
 	BookID        *uuid.UUID      `json:"book_id"`
@@ -159,6 +160,13 @@ func (s *Service) PatchHighlight(ctx context.Context, userID, id uuid.UUID, in H
 		return item, err
 	}
 	q := s.db.NewUpdate().Model(&item).WherePK().Where("user_id=?", userID).Set("updated_at=?", s.now().UTC())
+	if in.SelectedText != nil {
+		selectedText := plain(*in.SelectedText)
+		if selectedText == "" || len(selectedText) > 20000 {
+			return item, errors.New("invalid selected text")
+		}
+		q = q.Set("selected_text=?", selectedText)
+	}
 	if in.Color != nil {
 		if !validColor(*in.Color) || *in.Color == "" {
 			return item, errors.New("invalid color")

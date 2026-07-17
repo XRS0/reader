@@ -41,6 +41,7 @@ import type {
   FinishSessionInput,
   HeartbeatInput,
   Highlight,
+  HighlightUpdate,
   Note,
   ProgressUpdate,
   ReaderPreferences,
@@ -163,7 +164,11 @@ export const booksApi = {
     bookId: string,
     input: Omit<Highlight, 'id' | 'book_id' | 'book_title' | 'created_at' | 'updated_at'>
   ): Promise<Highlight> =>
-    apiRequest(`/books/${id(bookId)}/highlights`, highlightSchema, { method: 'POST', body: input })
+    apiRequest(`/books/${id(bookId)}/highlights`, highlightSchema, { method: 'POST', body: input }),
+  updateHighlight: (highlightId: string, input: HighlightUpdate): Promise<Highlight> =>
+    apiRequest(`/highlights/${id(highlightId)}`, highlightSchema, { method: 'PATCH', body: input }),
+  removeHighlight: (highlightId: string): Promise<void> =>
+    apiRequestVoid(`/highlights/${id(highlightId)}`, { method: 'DELETE' })
 }
 
 export const sessionsApi = {

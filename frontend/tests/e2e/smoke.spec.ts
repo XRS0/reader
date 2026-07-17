@@ -225,3 +225,60 @@ test('book details allow adding, replacing and removing a custom cover', async (
   await page.getByRole('button', { name: /Удалить свою обложку|Remove custom cover/ }).click()
   await expect(page.getByRole('button', { name: /Добавить обложку|Add cover/ })).toBeVisible()
 })
+
+test('library allows managing a book avatar from the book card', async ({ page }) => {
+  await page.goto('/library')
+  const card = page.locator('article').filter({ hasText: 'The Quiet Observatory' }).first()
+  await card.hover()
+  await card.getByRole('button', { name: /Больше действий|More actions/ }).click()
+  await page.getByRole('menuitem', { name: /Аватарка книги|Book avatar/ }).click()
+
+  const dialog = page.getByRole('dialog', { name: /Аватарка книги|Book avatar/ })
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'avatar.webp',
+    mimeType: 'image/webp',
+    buffer: Buffer.alloc(640)
+  })
+  await dialog.getByRole('button', { name: /Добавить обложку|Add cover/ }).click()
+  await expect(
+    dialog.getByRole('button', {
+      name: /Удалить свою обложку|Remove custom cover/
+    })
+  ).toBeVisible()
+})
+
+test('highlights preserve paragraphs and support edit, note conversion and deletion', async ({
+  page
+}) => {
+  await page.goto('/highlights')
+  const card = page.locator('article').filter({ hasText: 'let the world remain unfamiliar' })
+  await card.getByRole('button', { name: /Изменить|Edit/ }).click()
+
+  const editDialog = page.getByRole('dialog', { name: /Изменить выделение|Edit highlight/ })
+  const textareas = editDialog.locator('textarea')
+  await textareas.nth(0).fill('Первый абзац.\n\nВторой абзац.')
+  await textareas.nth(1).fill('Комментарий к фрагменту')
+  await editDialog.locator('select').selectOption('rose')
+  await editDialog.getByRole('button', { name: /Сохранить|Save/ }).click()
+  await expect(editDialog).toBeHidden()
+
+  const editedCard = page.locator('article').filter({ hasText: 'Первый абзац.' })
+  const quote = editedCard.locator('blockquote')
+  await expect(quote).toContainText('Второй абзац.')
+  await expect
+    .poll(() => quote.evaluate((element) => getComputedStyle(element).whiteSpace))
+    .toBe('pre-wrap')
+  await expect(editedCard).toContainText('Комментарий к фрагменту')
+
+  await editedCard.getByRole('button', { name: /В заметку|Add to note/ }).click()
+  await expect(page).toHaveURL(/\/notes\?note=/)
+  await expect(page.locator('textarea').first()).toHaveValue('Первый абзац.\n\nВторой абзац.')
+
+  await page.goBack()
+  await expect(page).toHaveURL(/\/highlights$/)
+  const persistedCard = page.locator('article').filter({ hasText: 'Первый абзац.' })
+  await persistedCard.getByRole('button', { name: /Удалить|Delete/ }).click()
+  const confirmation = page.getByRole('dialog', { name: /Удалить выделение|Delete highlight/ })
+  await confirmation.getByRole('button', { name: /Удалить|Delete/ }).click()
+  await expect(page.getByText('Первый абзац.', { exact: false })).toHaveCount(0)
+})

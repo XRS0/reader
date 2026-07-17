@@ -20,6 +20,7 @@ import type {
   FinishSessionInput,
   HeartbeatInput,
   Highlight,
+  HighlightUpdate,
   Note,
   ProgressUpdate,
   ReaderPreferences,
@@ -255,6 +256,26 @@ export function useAddHighlight(bookId: string) {
   })
 }
 
+export function useUpdateHighlight() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ highlightId, input }: { highlightId: string; input: HighlightUpdate }) =>
+      booksApi.updateHighlight(highlightId, input),
+    onSuccess: (highlight) =>
+      client.invalidateQueries({ queryKey: queryKeys.highlights(highlight.book_id) })
+  })
+}
+
+export function useDeleteHighlight() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ highlightId }: { highlightId: string; bookId: string }) =>
+      booksApi.removeHighlight(highlightId),
+    onSuccess: (_data, variables) =>
+      client.invalidateQueries({ queryKey: queryKeys.highlights(variables.bookId) })
+  })
+}
+
 export function useDictionary(query: DictionaryQuery = {}) {
   return useQuery({
     queryKey: queryKeys.dictionary(query),
@@ -414,6 +435,14 @@ export function useUpdateNote(noteId: string | undefined) {
   const client = useQueryClient()
   return useMutation({
     mutationFn: (input: Partial<Pick<Note, 'title' | 'blocks'>>) => notesApi.update(noteId!, input),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['notes'] })
+  })
+}
+
+export function useDeleteNote() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (noteId: string) => notesApi.remove(noteId),
     onSuccess: () => client.invalidateQueries({ queryKey: ['notes'] })
   })
 }

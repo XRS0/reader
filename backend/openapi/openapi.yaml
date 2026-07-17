@@ -3833,6 +3833,10 @@ components:
     HighlightUpdate:
       type: object
       properties:
+        selected_text:
+          type: string
+          minLength: 1
+          maxLength: 20000
         color:
           $ref: '#/components/schemas/HighlightColor'
         note:

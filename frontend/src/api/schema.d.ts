@@ -1511,6 +1511,7 @@ export interface components {
       note?: string
     }
     HighlightUpdate: {
+      selected_text?: string
       color?: components['schemas']['HighlightColor']
       note?: string
     }

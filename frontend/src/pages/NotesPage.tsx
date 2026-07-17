@@ -1,13 +1,22 @@
-import { FilePlus2, NotebookPen, Plus } from 'lucide-react'
+import { ArrowLeft, FilePlus2, GripVertical, NotebookPen, Plus, Save, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
-import { useCreateNote, useDebouncedValue, useNotes, useUpdateNote } from '../api/hooks'
 import {
+  useBooks,
+  useCreateNote,
+  useDebouncedValue,
+  useDeleteNote,
+  useNotes,
+  useUpdateNote
+} from '../api/hooks'
+import {
+  AlertDialog,
   Button,
   EmptyState,
   ErrorState,
+  IconButton,
   SearchInput,
   Select,
   Skeleton,
@@ -17,26 +26,45 @@ import { formatDate } from '../shared/format'
 import type { Note, NoteBlock, NoteBlockType } from '../types/api'
 import styles from './pages.module.css'
 
+function createDraft(): Note {
+  return {
+    id: 'draft',
+    title: '',
+    schema_version: 1,
+    blocks: [{ id: crypto.randomUUID(), type: 'paragraph', text: '' }],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }
+}
+
+function notePreview(note: Note): string {
+  return (
+    note.blocks
+      .find((block) => block.text?.trim())
+      ?.text?.replace(/\s+/g, ' ')
+      .trim() ?? ''
+  )
+}
+
 export function NotesPage() {
   const { t, i18n } = useTranslation()
   const [params, setParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const debounced = useDebouncedValue(search)
   const query = useNotes({ search: debounced })
+  const booksQuery = useBooks({ limit: 100, sort: 'title' })
   const selectedId = params.get('note') ?? undefined
   const [draft, setDraft] = useState<Note>()
+  const [deleting, setDeleting] = useState<Note>()
+  const remove = useDeleteNote()
+  const { notify } = useToast()
+  const bookTitles = useMemo(
+    () => new Map((booksQuery.data?.items ?? []).map((book) => [book.id, book.title])),
+    [booksQuery.data?.items]
+  )
 
   useEffect(() => {
-    if (params.get('new') === '1' && !draft) {
-      setDraft({
-        id: 'draft',
-        title: '',
-        schema_version: 1,
-        blocks: [{ id: crypto.randomUUID(), type: 'paragraph', text: '' }],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-    }
+    if (params.get('new') === '1' && !draft) setDraft(createDraft())
   }, [draft, params])
 
   useEffect(() => {
@@ -44,23 +72,25 @@ export function NotesPage() {
   }, [query.data, selectedId])
 
   const newNote = () => {
-    setDraft({
-      id: 'draft',
-      title: '',
-      schema_version: 1,
-      blocks: [{ id: crypto.randomUUID(), type: 'paragraph', text: '' }],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    })
+    setDraft(createDraft())
     setParams({ new: '1' })
   }
 
+  const closeEditor = () => {
+    setDraft(undefined)
+    setParams({})
+  }
+
   return (
-    <div className={clsx(styles.page, styles.pageNarrow)}>
+    <div className={styles.page}>
       <header className={styles.pageHeader}>
         <div>
           <h1 className={styles.pageTitle}>{t('notes.title')}</h1>
-          <p className={styles.pageSubtitle}>{t('notes.emptyBody')}</p>
+          <p className={styles.pageSubtitle}>
+            {query.data
+              ? t('notes.count', { count: query.data.items.length })
+              : t('notes.emptyBody')}
+          </p>
         </div>
         <Button variant="accent" startIcon={Plus} onClick={newNote}>
           {t('notes.newNote')}
@@ -74,7 +104,7 @@ export function NotesPage() {
           onRetry={() => void query.refetch()}
         />
       ) : (
-        <div className={styles.notesLayout}>
+        <div className={clsx(styles.notesLayout, draft && styles.notesLayoutSelected)}>
           <aside className={styles.notesList} aria-label={t('notes.title')}>
             <div className={styles.notesListHeader}>
               <SearchInput
@@ -85,42 +115,57 @@ export function NotesPage() {
                 onClear={() => setSearch('')}
               />
             </div>
-            {query.isLoading
-              ? Array.from({ length: 5 }, (_, index) => (
-                  <div key={index} className={styles.noteItem}>
-                    <Skeleton width="80%" />
-                    <div style={{ height: 6 }} />
-                    <Skeleton width="45%" height={10} />
-                  </div>
-                ))
-              : query.data?.items.map((note) => (
-                  <button
-                    key={note.id}
-                    type="button"
-                    className={clsx(
-                      styles.noteItem,
-                      draft?.id === note.id && styles.noteItemActive
-                    )}
-                    onClick={() => {
-                      setDraft(note)
-                      setParams({ note: note.id })
-                    }}
-                  >
-                    <span className={styles.noteItemTitle}>
-                      {note.title || t('notes.untitled')}
-                    </span>
-                    <span className={styles.noteItemMeta}>
-                      {formatDate(note.updated_at, i18n.language)}
-                      {note.book_title ? ` · ${note.book_title}` : ''}
-                    </span>
-                  </button>
-                ))}
+            <div className={styles.notesItems}>
+              {query.isLoading
+                ? Array.from({ length: 5 }, (_, index) => (
+                    <div key={index} className={styles.noteItem}>
+                      <Skeleton width="80%" />
+                      <div style={{ height: 8 }} />
+                      <Skeleton width="95%" height={10} />
+                      <div style={{ height: 6 }} />
+                      <Skeleton width="45%" height={10} />
+                    </div>
+                  ))
+                : query.data?.items.map((note) => {
+                    const preview = notePreview(note)
+                    const bookTitle =
+                      note.book_title ?? (note.book_id ? bookTitles.get(note.book_id) : undefined)
+                    return (
+                      <button
+                        key={note.id}
+                        type="button"
+                        className={clsx(
+                          styles.noteItem,
+                          draft?.id === note.id && styles.noteItemActive
+                        )}
+                        onClick={() => {
+                          setDraft(note)
+                          setParams({ note: note.id })
+                        }}
+                      >
+                        <span className={styles.noteItemTitle}>
+                          {note.title || t('notes.untitled')}
+                        </span>
+                        {preview ? <span className={styles.noteItemPreview}>{preview}</span> : null}
+                        <span className={styles.noteItemMeta}>
+                          {formatDate(note.updated_at, i18n.language)}
+                          {bookTitle ? ` · ${bookTitle}` : ''}
+                        </span>
+                      </button>
+                    )
+                  })}
+            </div>
           </aside>
-          <section className={styles.noteEditor} aria-label={t('notes.title')}>
+          <section className={styles.noteEditor} aria-label={t('notes.editor')}>
             {draft ? (
               <NoteEditor
                 key={draft.id}
                 note={draft}
+                bookTitle={
+                  draft.book_title ?? (draft.book_id ? bookTitles.get(draft.book_id) : undefined)
+                }
+                onBack={closeEditor}
+                onDelete={draft.id === 'draft' ? undefined : () => setDeleting(draft)}
                 onSaved={(note) => {
                   setDraft(note)
                   setParams({ note: note.id })
@@ -141,21 +186,55 @@ export function NotesPage() {
           </section>
         </div>
       )}
+      <AlertDialog
+        open={Boolean(deleting)}
+        onClose={() => setDeleting(undefined)}
+        onConfirm={() => {
+          if (!deleting) return
+          void remove.mutateAsync(deleting.id).then(() => {
+            notify(t('notes.deleted'), 'success')
+            setDeleting(undefined)
+            closeEditor()
+          })
+        }}
+        title={t('notes.deleteTitle')}
+        description={t('notes.deleteConfirm')}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        confirmLoading={remove.isPending}
+      />
     </div>
   )
 }
 
-function NoteEditor({ note, onSaved }: { note: Note; onSaved: (note: Note) => void }) {
-  const { t } = useTranslation()
+function NoteEditor({
+  note,
+  bookTitle,
+  onSaved,
+  onDelete,
+  onBack
+}: {
+  note: Note
+  bookTitle?: string
+  onSaved: (note: Note) => void
+  onDelete?: () => void
+  onBack: () => void
+}) {
+  const { t, i18n } = useTranslation()
   const { notify } = useToast()
   const [title, setTitle] = useState(note.title)
-  const [blocks, setBlocks] = useState(note.blocks)
+  const [blocks, setBlocks] = useState(note.blocks.length ? note.blocks : createDraft().blocks)
   const [newType, setNewType] = useState<NoteBlockType>('paragraph')
   const create = useCreateNote()
   const update = useUpdateNote(note.id === 'draft' ? undefined : note.id)
   const saving = create.isPending || update.isPending
   const updateBlock = (id: string, input: Partial<NoteBlock>) =>
     setBlocks((items) => items.map((block) => (block.id === id ? { ...block, ...input } : block)))
+  const removeBlock = (id: string) =>
+    setBlocks((items) => {
+      const next = items.filter((block) => block.id !== id)
+      return next.length ? next : [{ id: crypto.randomUUID(), type: 'paragraph', text: '' }]
+    })
   const save = async () => {
     const value =
       note.id === 'draft'
@@ -180,8 +259,23 @@ function NoteEditor({ note, onSaved }: { note: Note; onSaved: (note: Note) => vo
     ],
     [t]
   )
+  const typeLabel = (type: NoteBlockType) =>
+    options.find((option) => option.value === type)?.label ?? type
+
   return (
-    <div>
+    <div className={styles.noteDocument}>
+      <div className={styles.noteEditorHeader}>
+        <Button variant="ghost" size="small" startIcon={ArrowLeft} onClick={onBack}>
+          {t('common.back')}
+        </Button>
+        <div className={styles.noteEditorMeta}>
+          <span>{bookTitle ?? t('notes.personal')}</span>
+          <span>{t('notes.updated', { date: formatDate(note.updated_at, i18n.language) })}</span>
+        </div>
+        {onDelete ? (
+          <IconButton icon={Trash2} label={t('common.delete')} onClick={onDelete} />
+        ) : null}
+      </div>
       <input
         className={styles.noteTitleInput}
         aria-label={t('notes.untitled')}
@@ -190,35 +284,43 @@ function NoteEditor({ note, onSaved }: { note: Note; onSaved: (note: Note) => vo
         onChange={(event) => setTitle(event.target.value)}
       />
       <div className={styles.blockEditor}>
-        {blocks.map((block) =>
-          block.type === 'divider' ? (
-            <hr key={block.id} />
-          ) : (
-            <div key={block.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              {block.type === 'task' ? (
-                <input
-                  type="checkbox"
-                  checked={block.checked ?? false}
-                  aria-label={t('notes.task')}
-                  onChange={(event) => updateBlock(block.id, { checked: event.target.checked })}
-                />
-              ) : null}
-              <textarea
-                className={styles.blockInput}
-                rows={block.type.startsWith('heading') ? 1 : 2}
-                style={{
-                  fontSize:
-                    block.type === 'heading1' ? 24 : block.type === 'heading2' ? 20 : undefined,
-                  fontStyle:
-                    block.type === 'quote' || block.type === 'saved_quote' ? 'italic' : undefined
-                }}
-                placeholder={t('notes.editorHint')}
-                value={block.text ?? ''}
-                onChange={(event) => updateBlock(block.id, { text: event.target.value })}
-              />
+        {blocks.map((block) => (
+          <div key={block.id} className={styles.noteBlock} data-block-type={block.type}>
+            <div className={styles.noteBlockRail}>
+              <GripVertical size={15} aria-hidden="true" />
+              <span>{typeLabel(block.type)}</span>
             </div>
-          )
-        )}
+            {block.type === 'divider' ? (
+              <hr className={styles.noteDivider} />
+            ) : (
+              <div className={styles.noteBlockContent}>
+                {block.type === 'task' ? (
+                  <input
+                    type="checkbox"
+                    checked={block.checked ?? false}
+                    aria-label={t('notes.task')}
+                    onChange={(event) => updateBlock(block.id, { checked: event.target.checked })}
+                  />
+                ) : null}
+                <textarea
+                  className={styles.blockInput}
+                  aria-label={typeLabel(block.type)}
+                  rows={block.type.startsWith('heading') ? 1 : block.type === 'saved_quote' ? 4 : 2}
+                  placeholder={t('notes.editorHint')}
+                  value={block.text ?? ''}
+                  onChange={(event) => updateBlock(block.id, { text: event.target.value })}
+                />
+              </div>
+            )}
+            <IconButton
+              className={styles.noteBlockDelete}
+              size="small"
+              icon={Trash2}
+              label={t('notes.deleteBlock')}
+              onClick={() => removeBlock(block.id)}
+            />
+          </div>
+        ))}
       </div>
       <div className={styles.noteToolbar}>
         <Select
@@ -248,7 +350,7 @@ function NoteEditor({ note, onSaved }: { note: Note; onSaved: (note: Note) => vo
         >
           {t('notes.addBlock')}
         </Button>
-        <Button variant="accent" loading={saving} onClick={() => void save()}>
+        <Button variant="accent" startIcon={Save} loading={saving} onClick={() => void save()}>
           {t('common.save')}
         </Button>
       </div>

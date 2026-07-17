@@ -72,6 +72,7 @@ import {
 } from './pagination'
 import { SelectionToolbar, TranslationPopover, type TranslationValue } from './TranslationPopover'
 import styles from './reader.module.css'
+import { formatSelectedText } from './selectionText'
 
 interface TextSelection {
   text: string
@@ -641,7 +642,7 @@ export function ReaderPage() {
   const handleSelection = (event: ReactMouseEvent) => {
     if (!contentRef.current?.contains(event.target as Node)) return
     const browserSelection = window.getSelection()
-    const text = browserSelection?.toString().trim().slice(0, 500) ?? ''
+    const text = formatSelectedText(browserSelection?.toString() ?? '', 20_000)
     if (!browserSelection || browserSelection.rangeCount === 0 || text.length < 1) {
       setSelection(undefined)
       return

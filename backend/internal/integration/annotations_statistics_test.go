@@ -68,6 +68,10 @@ func TestAnnotationsEnforceOwnershipAndSanitizeContent(t *testing.T) {
 	require.Equal(t, "Selected sentence", highlight.SelectedText)
 	_, err = service.PatchHighlight(testContext(t), other.ID, highlight.ID, annotations.HighlightPatch{Note: &foreignPatch})
 	require.ErrorIs(t, err, annotations.ErrNotFound)
+	editedText := "Edited selected sentence"
+	editedHighlight, err := service.PatchHighlight(testContext(t), owner.ID, highlight.ID, annotations.HighlightPatch{SelectedText: &editedText})
+	require.NoError(t, err)
+	require.Equal(t, editedText, editedHighlight.SelectedText)
 
 	foreignHighlight, err := service.CreateHighlight(testContext(t), other.ID, foreignBook.ID, annotations.HighlightInput{
 		ChapterID:    &foreignChapter.ID,
