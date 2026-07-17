@@ -77,9 +77,22 @@ export function NotesPage() {
     setParams({ new: '1' })
   }
 
+  const resetPageScroll = () => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }))
+    })
+  }
+
   const closeEditor = () => {
     setDraft(undefined)
     setParams({})
+    resetPageScroll()
+  }
+
+  const openNote = (note: Note) => {
+    setDraft(note)
+    setParams({ note: note.id })
+    resetPageScroll()
   }
 
   return (
@@ -139,10 +152,7 @@ export function NotesPage() {
                           styles.noteItem,
                           draft?.id === note.id && styles.noteItemActive
                         )}
-                        onClick={() => {
-                          setDraft(note)
-                          setParams({ note: note.id })
-                        }}
+                        onClick={() => openNote(note)}
                       >
                         <span className={styles.noteItemTitle}>
                           {note.title || t('notes.untitled')}

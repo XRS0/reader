@@ -367,9 +367,17 @@ export function ReaderPage() {
           viewport.style.scrollBehavior = 'auto'
           viewport.scrollTop = target
           viewport.style.scrollBehavior = behavior
+          const contentRect = content.getBoundingClientRect()
+          const markerProbeY = Math.min(window.innerHeight - 72, 92)
+          const markerRange = document.caretRangeFromPoint?.(
+            contentRect.left + contentRect.width / 2,
+            markerProbeY
+          )
+          const markerLine = markerRange?.getClientRects()[0]
+          const markerTop = markerLine ? markerLine.bottom - contentRect.top + 7 : target + 96
           setResumeMarkerTop(
             progress.scroll_percent > 0
-              ? Math.max(68, Math.min(content.scrollHeight - 28, target + 72))
+              ? Math.max(68, Math.min(content.scrollHeight - 28, markerTop))
               : undefined
           )
         }

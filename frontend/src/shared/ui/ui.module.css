@@ -322,9 +322,11 @@
 }
 
 .dialog {
+  display: grid;
   width: min(520px, calc(100vw - 32px));
   max-height: min(760px, calc(100dvh - 32px));
-  overflow: auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-background);
@@ -350,13 +352,17 @@
   font-size: var(--text-sm);
 }
 .dialogBody {
+  min-height: 0;
+  overflow-y: auto;
   padding: var(--space-3) var(--space-5) var(--space-5);
 }
 .dialogFooter {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
-  padding: 0 var(--space-5) var(--space-5);
+  padding: var(--space-3) var(--space-5) var(--space-5);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-background);
 }
 
 .drawerOverlay {
@@ -364,6 +370,7 @@
   padding: 0;
 }
 .drawer {
+  position: relative;
   width: min(320px, calc(100vw - 48px));
   height: 100dvh;
   overflow: auto;
@@ -371,6 +378,12 @@
   background: var(--color-background);
   box-shadow: var(--shadow-dialog);
   animation: slideIn var(--transition-fast) ease-out;
+}
+.drawerClose {
+  position: absolute;
+  z-index: 3;
+  top: 10px;
+  right: 10px;
 }
 @keyframes slideIn {
   from {

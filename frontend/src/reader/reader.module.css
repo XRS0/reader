@@ -46,9 +46,13 @@
   gap: var(--space-3);
   padding: 0 var(--space-4);
   border-bottom: 1px solid color-mix(in srgb, var(--reader-text) 12%, transparent);
-  background: color-mix(in srgb, var(--reader-bg) 94%, transparent);
-  opacity: var(--controls-opacity, 1);
+  background: var(--reader-bg);
   backdrop-filter: blur(12px);
+}
+.toolbarLeft,
+.toolbarTitle,
+.toolbarRight {
+  opacity: var(--controls-opacity, 1);
 }
 .toolbarLeft,
 .toolbarRight {
@@ -90,6 +94,7 @@
   height: 100dvh;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scroll-padding-block: 64px 48px;
   scroll-behavior: smooth;
 }
 .viewportPaged {
@@ -118,9 +123,8 @@
   z-index: 2;
   right: 0;
   left: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  height: 1px;
+  background: color-mix(in srgb, var(--reader-accent) 60%, transparent);
   color: color-mix(in srgb, var(--reader-accent) 86%, var(--reader-text));
   font-family: var(--font-ui);
   font-size: 10px;
@@ -131,16 +135,19 @@
 }
 .resumeMarker::before,
 .resumeMarker::after {
-  height: 1px;
-  flex: 1;
-  background: color-mix(in srgb, var(--reader-accent) 52%, transparent);
-  content: '';
+  content: none;
 }
 .resumeMarker span {
-  padding: 3px 8px;
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 9px;
+  height: 9px;
+  padding: 0;
   border: 1px solid color-mix(in srgb, var(--reader-accent) 28%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--reader-bg) 92%, transparent);
+  background: var(--reader-accent);
+  font-size: 0;
   white-space: nowrap;
 }
 .contentPaged {
@@ -267,12 +274,15 @@
   left: 0;
   min-height: 36px;
   padding: var(--space-2) var(--space-4);
-  background: color-mix(in srgb, var(--reader-bg) 94%, transparent);
+  background: var(--reader-bg);
   color: color-mix(in srgb, var(--reader-text) 64%, transparent);
   font-family: var(--font-ui);
   font-size: 11px;
-  opacity: var(--controls-opacity, 1);
   backdrop-filter: blur(10px);
+}
+.statusInner,
+.progressLine {
+  opacity: var(--controls-opacity, 1);
 }
 .progressLine {
   position: absolute;
@@ -608,6 +618,19 @@
   background: var(--color-muted-background);
   font-size: var(--text-sm);
   line-height: 1.5;
+}
+
+@media (min-width: 1100px) {
+  .resumeMarker span {
+    right: auto;
+    bottom: -10px;
+    left: calc(100% + 12px);
+    width: auto;
+    height: auto;
+    padding: 3px 8px;
+    background: var(--reader-bg);
+    font-size: 10px;
+  }
 }
 
 @media (max-width: 720px) {

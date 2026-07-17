@@ -75,7 +75,12 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
-      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} label={t('nav.menu')}>
+      <Drawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        label={t('nav.menu')}
+        closeLabel={t('common.close')}
+      >
         <Sidebar drawer onNavigate={() => setDrawerOpen(false)} />
       </Drawer>
       <MobileNav />

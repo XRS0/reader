@@ -356,17 +356,19 @@ export function ProgressBar({ value, label }: { value: number; label: string }) 
   )
 }
 
-function useFocusTrap(open: boolean, onClose: () => void) {
+function useFocusTrap(open: boolean, onClose: () => void, suppressRestoredFocusRing = false) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return undefined
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const root = ref.current
+    let keyboardInteraction = false
     const focusable = root?.querySelectorAll<HTMLElement>(
       'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
     )
     focusable?.[0]?.focus()
     const onKeyDown = (event: KeyboardEvent) => {
+      keyboardInteraction = true
       if (event.key === 'Escape') {
         event.preventDefault()
         onClose()
@@ -383,14 +385,31 @@ function useFocusTrap(open: boolean, onClose: () => void) {
         first.focus()
       }
     }
+    const onPointerDown = () => {
+      keyboardInteraction = false
+    }
     document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('pointerdown', onPointerDown, true)
     document.body.style.overflow = 'hidden'
     return () => {
       document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('pointerdown', onPointerDown, true)
       document.body.style.overflow = ''
-      previous?.focus()
+      if (!previous) return
+      if (suppressRestoredFocusRing && !keyboardInteraction) {
+        previous.dataset.restoredFocus = 'true'
+        const clearRestoredState = () => {
+          delete previous.dataset.restoredFocus
+          window.removeEventListener('keydown', clearRestoredState, true)
+          window.removeEventListener('pointerdown', clearRestoredState, true)
+        }
+        previous.addEventListener('blur', clearRestoredState, { once: true })
+        window.addEventListener('keydown', clearRestoredState, { once: true, capture: true })
+        window.addEventListener('pointerdown', clearRestoredState, { once: true, capture: true })
+      }
+      previous.focus({ preventScroll: true })
     }
-  }, [open, onClose])
+  }, [open, onClose, suppressRestoredFocusRing])
   return ref
 }
 
@@ -408,6 +427,7 @@ export interface DialogProps {
   footer?: ReactNode
   className?: string
   closeLabel?: string
+  suppressRestoredFocusRing?: boolean
 }
 
 export function Dialog({
@@ -418,11 +438,12 @@ export function Dialog({
   children,
   footer,
   className,
-  closeLabel = 'Close'
+  closeLabel = 'Close',
+  suppressRestoredFocusRing = false
 }: DialogProps) {
   const titleId = useId()
   const descriptionId = useId()
-  const ref = useFocusTrap(open, onClose)
+  const ref = useFocusTrap(open, onClose, suppressRestoredFocusRing)
   if (!open) return null
   return (
     <Portal>
@@ -503,11 +524,13 @@ export function Drawer({
   open,
   onClose,
   label,
+  closeLabel = label,
   children
 }: {
   open: boolean
   onClose: () => void
   label: string
+  closeLabel?: string
   children: ReactNode
 }) {
   const ref = useFocusTrap(open, onClose)
@@ -519,6 +542,13 @@ export function Drawer({
         onMouseDown={(event) => event.target === event.currentTarget && onClose()}
       >
         <div ref={ref} className={styles.drawer} role="dialog" aria-modal="true" aria-label={label}>
+          <IconButton
+            className={styles.drawerClose}
+            size="small"
+            icon={X}
+            label={closeLabel}
+            onClick={onClose}
+          />
           {children}
         </div>
       </div>

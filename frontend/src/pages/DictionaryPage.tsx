@@ -282,6 +282,7 @@ function DictionaryDetailsDialog({
       }
       closeLabel={t('common.close')}
       className={styles.dictionaryDetailsDialog}
+      suppressRestoredFocusRing
       footer={
         editing ? (
           <>

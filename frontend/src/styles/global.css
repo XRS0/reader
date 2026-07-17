@@ -47,6 +47,10 @@ select,
   outline-offset: 2px;
 }
 
+[data-restored-focus='true']:focus-visible {
+  outline: none;
+}
+
 button {
   border: 0;
 }
